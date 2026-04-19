@@ -261,7 +261,7 @@ export default function Home() {
       </div>
 
       {/* ── Detail Panel ── */}
-      {true && (
+      {service && (
         <div style={{ padding: "0 1.25rem 1.5rem" }}>
           {!confirmed ? (
             <>
