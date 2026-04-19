@@ -9,7 +9,7 @@ export async function POST(req) {
     const { service, option, name, phone, address } = body;
 
     // validation
-    if (!service || option === null || !name || !phone || !address) {
+    if (!service || option === null || option === undefined || !name || !phone || !address) {
       console.error("Validation failed: Missing required fields");
       return Response.json(
         {
@@ -60,6 +60,38 @@ export async function POST(req) {
       {
         success: false,
         message: "Internal server error",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(req) {
+  try {
+    console.log("GET /api/booking: Connecting to database...");
+
+    // Connect to the database
+    const client = await clientPromise;
+    const db = client.db("fixnext-sheba");
+
+    console.log("GET /api/booking: Connected to database.");
+
+    // Fetch all bookings
+    const bookings = await db.collection("bookings").find({}).toArray();
+
+    console.log("GET /api/booking: Fetched bookings:", bookings);
+
+    // Return the bookings as JSON
+    return Response.json({
+      success: true,
+      data: bookings,
+    });
+  } catch (error) {
+    console.error("GET /api/booking: Error fetching bookings:", error);
+    return Response.json(
+      {
+        success: false,
+        message: "Failed to fetch bookings",
       },
       { status: 500 }
     );
