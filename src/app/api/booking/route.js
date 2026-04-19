@@ -4,10 +4,13 @@ export async function POST(req) {
   try {
     const body = await req.json();
 
+    console.log("Request Body:", body);
+
     const { service, option, name, phone, address } = body;
 
     // validation
     if (!service || option === null || !name || !phone || !address) {
+      console.error("Validation failed: Missing required fields");
       return Response.json(
         {
           success: false,
@@ -28,12 +31,18 @@ export async function POST(req) {
       createdAt: new Date(),
     };
 
+    console.log("Booking Object:", booking);
+
     // connect DB
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
 
+    console.log("Connected to database");
+
     // insert booking
     await db.collection("bookings").insertOne(booking);
+
+    console.log("Booking inserted successfully");
 
     // success response
     return Response.json(
