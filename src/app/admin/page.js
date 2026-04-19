@@ -130,6 +130,22 @@ export default function AdminPage() {
     }
   };
 
+
+  const updateStatus = async (id, status) => {
+  try {
+    await fetch("/api/booking", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status }),
+    });
+
+    fetchBookings(); // refresh data
+  } catch (err) {
+    console.error(err);
+  }
+};
+//updateStatus function
+
   useEffect(() => { fetchBookings(); }, []);
 
   const counts = {
@@ -268,8 +284,44 @@ export default function AdminPage() {
                 <tbody>
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ padding: "3rem", textAlign: "center", color: "#7B94B5", fontSize: 13 }}>
-                        No bookings found
+                      <td style={td}>
+                        <StatusBadge status={b.status} />
+
+                        <div style={{ marginTop: 6, display: "flex", gap: 5 }}>
+                          {b.status === "pending" && (
+                            <button
+                              onClick={() => updateStatus(b._id, "accepted")}
+                              style={{
+                                fontSize: 10,
+                                padding: "4px 8px",
+                                background: "#3B82F6",
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Accept
+                            </button>
+                          )}
+
+                          {b.status === "accepted" && (
+                            <button
+                              onClick={() => updateStatus(b._id, "completed")}
+                              style={{
+                                fontSize: 10,
+                                padding: "4px 8px",
+                                background: "#22C55E",
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Complete
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ) : (

@@ -1,4 +1,5 @@
 import clientPromise from "@/lib/mongodb";
+import { ObjectId } from "mongodb";
 
 export async function POST(req) {
   try {
@@ -86,13 +87,48 @@ export async function GET(req) {
       success: true,
       data: bookings,
     });
-  } catch (error) {
-    console.error("GET /api/booking: Error fetching bookings:", error);
+  }
+   catch (error) {
+  console.error("GET ERROR:", error);
+
+  return Response.json(
+    {
+      success: false,
+      message: error.message, // 🔥 real error show 
+    },
+    { status: 500 }
+  );
+}
+}
+
+export async function PATCH(req) {
+  try {
+    const { id, status } = await req.json();
+
+    if (!id || !status) {
+      return Response.json(
+        { success: false, message: "Missing id or status" },
+        { status: 400 }
+      );
+    }
+
+    const client = await clientPromise;
+    const db = client.db("fixnext-sheba");
+
+    const result = await db.collection("bookings").updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { status } }
+    );
+
+    return Response.json({
+      success: true,
+      message: "Status updated",
+    });
+
+  } catch (err) {
+    console.error(err);
     return Response.json(
-      {
-        success: false,
-        message: "Failed to fetch bookings",
-      },
+      { success: false, message: "Error updating status" },
       { status: 500 }
     );
   }
