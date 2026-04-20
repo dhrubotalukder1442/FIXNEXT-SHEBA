@@ -1,6 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react"; // Added useEffect here
+import { useRouter } from "next/navigation";
 import { services } from "../data/services";
+
+
 
 const CalendarIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -26,7 +29,19 @@ const CloseIcon = () => (
   </svg>
 );
 
+
 export default function Home() {
+ 
+  const router = useRouter(); 
+
+  useEffect(() => {
+  const stored = JSON.parse(localStorage.getItem("user"));
+  if (stored) {
+    setUser(stored); // ✅ user set 
+  }
+}, []);
+
+
   const [activeService, setActiveService] = useState(null);
   const [selectedOption, setSelectedOption] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -35,6 +50,7 @@ export default function Home() {
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [user, setUser] = useState(null);
 
   const service = activeService ? services[activeService] : null;
 
@@ -46,39 +62,67 @@ export default function Home() {
 
   // Step 1: validate & open modal
   const handleOpenModal = () => {
-    if (!activeService || selectedOption === null) {
-      alert("Please select a service and package");
-      return;
-    }
-    if (!name || !phone || !address) {
-      alert("Please fill all fields");
-      return;
-    }
-    setShowModal(true);
-  };
+  // ✅ Booking করতে গেলে login লাগবে
+  const storedUser = JSON.parse(localStorage.getItem("user"));
+  if (!storedUser) {
+    router.push("/login");
+    return;
+  }
+
+  if (!activeService || selectedOption === null) {
+    alert("Please select a service and package");
+    return;
+  }
+  if (!name || !phone || !address) {
+    alert("Please fill all fields");
+    return;
+  }
+  setShowModal(true);
+};
 
   // Step 2: confirm booking from modal
   const handleConfirmBooking = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch("/api/booking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ service: activeService, option: selectedOption, name, phone, address }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        setShowModal(false);
-        setConfirmed(true);
-      } else {
-        alert(result.message || "Failed to book the service.");
-      }
-    } catch (error) {
-      alert("Something went wrong.");
-    } finally {
-      setLoading(false);
+  // ✅ Login check
+  const user = JSON.parse(localStorage.getItem("user"));
+  if (!user) {
+    setShowModal(false);
+    router.push("/login");
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const response = await fetch("/api/booking", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service: activeService,
+        option: selectedOption,
+        name,
+        phone,
+        address,
+        userId: user.id,   // ✅ userId পাঠাও
+      }),
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      setShowModal(false);
+      setConfirmed(true);
+    } else if (result.code === "NOT_LOGGED_IN") {
+      // ✅ Backend থেকে unauthorized এলে
+      setShowModal(false);
+      router.push("/login");
+    } else {
+      alert(result.message || "Failed to book the service.");
     }
-  };
+  } catch (error) {
+    alert("Something went wrong.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleReset = () => {
     setActiveService(null);
@@ -209,31 +253,56 @@ export default function Home() {
       )}
 
       {/* ── Hero ── */}
-      <div style={{ background: "#0A2540", padding: "1.5rem 1.25rem 2rem", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", width: 220, height: 220, background: "#1D9E75", opacity: 0.07, borderRadius: "50%", top: -70, right: -50, pointerEvents: "none" }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "1.25rem" }}>
-          <div style={{ width: 40, height: 40, background: "#1D9E75", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
-              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M9 22V12h6v10" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", lineHeight: 1 }}>FixNext Sheba</div>
-            <div style={{ fontSize: 11, color: "#5DCAA5", marginTop: 2, letterSpacing: "0.04em", textTransform: "uppercase" }}>Home Services</div>
-          </div>
-        </div>
-        <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Trusted Home Services</div>
-        <div style={{ fontSize: 13, color: "#9AAFC7" }}>Professional helpers, right at your door</div>
-        <div style={{ display: "flex", gap: 14, marginTop: "1rem" }}>
-          {["Verified Pros", "Fixed Prices", "Guaranteed"].map((t) => (
-            <div key={t} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#7BAEC8" }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />
-              {t}
-            </div>
-          ))}
-        </div>
+<div style={{ background: "#0A2540", padding: "1.5rem 1.25rem 2rem", position: "relative", overflow: "hidden" }}>
+  <div style={{ position: "absolute", width: 220, height: 220, background: "#1D9E75", opacity: 0.07, borderRadius: "50%", top: -70, right: -50, pointerEvents: "none" }} />
+  
+  {/* Logo row + Login button */}
+  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ width: 40, height: 40, background: "#1D9E75", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <svg viewBox="0 0 24 24" fill="none" width="22" height="22">
+          <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M9 22V12h6v10" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </div>
+      <div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#fff", lineHeight: 1 }}>FixNext Sheba</div>
+        <div style={{ fontSize: 11, color: "#5DCAA5", marginTop: 2, letterSpacing: "0.04em", textTransform: "uppercase" }}>Home Services</div>
+      </div>
+    </div>
+
+    {/* User info / Login button */}
+    {user ? (
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ fontSize: 12, color: "#9AAFC7" }}>Hi, {user.name}</div>
+        <button
+          onClick={() => { localStorage.removeItem("user"); router.push("/login"); }}
+          style={{ background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "5px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
+        >
+          Logout
+        </button>
+      </div>
+    ) : (
+      <button
+        onClick={() => router.push("/login")}
+        style={{ background: "#1D9E75", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+      >
+        Login
+      </button>
+    )}
+  </div>
+
+  <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Trusted Home Services</div>
+  <div style={{ fontSize: 13, color: "#9AAFC7" }}>Professional helpers, right at your door</div>
+  <div style={{ display: "flex", gap: 14, marginTop: "1rem" }}>
+    {["Verified Pros", "Fixed Prices", "Guaranteed"].map((t) => (
+      <div key={t} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#7BAEC8" }}>
+        <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />
+        {t}
+      </div>
+    ))}
+  </div>
+</div>
 
       {/* ── Services Grid ── */}
       <div style={{ padding: "1.25rem" }}>
