@@ -104,7 +104,7 @@ export default function LoginPage() {
           </button>
 
           <div style={{ textAlign: "center", fontSize: 13, color: "#888780", marginTop: "1rem" }}>
-            Account নেই?{" "}
+            Don't have an account?{" "}
             <span
               onClick={() => router.push("/signup")}
               style={{ color: "#1D9E75", fontWeight: 700, cursor: "pointer" }}
