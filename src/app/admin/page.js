@@ -10,7 +10,7 @@ const StatusBadge = ({ status }) => {
   };
   const s = map[status] || map.pending;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: s.bg, color: s.color, padding: "3px 10px", borderRadius: 999, fontSize: 10, fontWeight: 600, letterSpacing: "0.04em" }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: s.bg, color: s.color, padding: "3px 10px", borderRadius: 999, fontSize: 10, fontWeight: 600 }}>
       <span style={{ width: 5, height: 5, borderRadius: "50%", background: s.dot, flexShrink: 0 }} />
       {status}
     </span>
@@ -56,18 +56,17 @@ export default function AdminPage() {
   const [spinning, setSpinning] = useState(false);
   const [users, setUsers] = useState([]);
   const [deleteId, setDeleteId] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [userBookings, setUserBookings] = useState([]);
+  const [modalTab, setModalTab] = useState("profile");
+  const [modalLoading, setModalLoading] = useState(false);
 
-  // ✅ Auth check
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem("user"));
-    if (!user) {
-      router.push("/login");
-    } else if (user.role !== "admin") {
-      router.push("/");
-    }
+    if (!user) router.push("/login");
+    else if (user.role !== "admin") router.push("/");
   }, []);
 
-  // ✅ Global styles
   useEffect(() => {
     if (document.getElementById("admin-global-styles")) return;
     const style = document.createElement("style");
@@ -83,10 +82,7 @@ export default function AdminPage() {
       const res = await fetch("/api/booking");
       if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
       const data = await res.json();
-      if (data.success) {
-        setBookings(data.data);
-        setLastUpdated(new Date());
-      }
+      if (data.success) { setBookings(data.data); setLastUpdated(new Date()); }
     } catch (err) {
       console.error("Fetch error:", err);
     } finally {
@@ -97,15 +93,9 @@ export default function AdminPage() {
 
   const updateStatus = async (id, status) => {
     try {
-      await fetch("/api/booking", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status }),
-      });
+      await fetch("/api/booking", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
       fetchBookings();
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   const fetchUsers = async () => {
@@ -120,29 +110,43 @@ export default function AdminPage() {
     fetchUsers();
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("user");
-    router.push("/login");
+  const handleViewUser = async (u) => {
+    setSelectedUser(u);
+    setModalTab("profile");
+    setModalLoading(true);
+    try {
+      const res = await fetch("/api/booking");
+      const data = await res.json();
+      if (data.success) {
+        const field = u.role === "serviceman" ? "servicemanId" : "userId";
+        setUserBookings(data.data.filter(b => b[field]?.toString() === u._id?.toString()));
+      }
+    } catch (err) { console.error(err); }
+    finally { setModalLoading(false); }
   };
+
+  const handleLogout = () => { localStorage.removeItem("user"); router.push("/login"); };
 
   useEffect(() => { fetchBookings(); }, []);
   useEffect(() => { fetchUsers(); }, []);
 
   const counts = {
     total: bookings.length,
-    pending: bookings.filter((b) => b.status === "pending").length,
-    accepted: bookings.filter((b) => b.status === "accepted").length,
-    completed: bookings.filter((b) => b.status === "completed").length,
+    pending: bookings.filter(b => b.status === "pending").length,
+    accepted: bookings.filter(b => b.status === "accepted").length,
+    completed: bookings.filter(b => b.status === "completed").length,
   };
 
-  const filtered = filter === "all" ? bookings : bookings.filter((b) => b.status === filter);
+  const filtered = filter === "all" ? bookings : bookings.filter(b => b.status === filter);
   const filters = ["all", "pending", "accepted", "completed"];
+
+  const roleColor = { user: { bg: "#EEF4FF", color: "#1E40AF" }, serviceman: { bg: "#F0FBF6", color: "#0F6E56" }, admin: { bg: "#FEF3C7", color: "#92400E" } };
 
   return (
     <div className="admin-root">
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "2rem 1.5rem" }}>
 
-        {/* ── Header ── */}
+        {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2rem", flexWrap: "wrap", gap: "1rem" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
@@ -150,34 +154,19 @@ export default function AdminPage() {
               <span style={{ fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "#7B94B5", fontWeight: 600 }}>Management Console</span>
             </div>
             <h1 style={{ fontSize: 28, fontWeight: 700, color: "#1E3A5F", margin: 0, lineHeight: 1.1 }}>Bookings Dashboard</h1>
-            {lastUpdated && (
-              <p style={{ fontSize: 12, color: "#93AECB", margin: "5px 0 0" }}>
-                Last updated at {lastUpdated.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-              </p>
-            )}
+            {lastUpdated && <p style={{ fontSize: 12, color: "#93AECB", margin: "5px 0 0" }}>Last updated at {lastUpdated.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</p>}
           </div>
-
           <div style={{ display: "flex", gap: 8 }}>
-            <button
-              className="admin-btn-refresh"
-              onClick={fetchBookings}
-              style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", borderRadius: 8, border: "1px solid #BFDBFE", background: "#fff", color: "#3B82F6", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-            >
-              <RefreshIcon spinning={spinning} />
-              Refresh
+            <button className="admin-btn-refresh" onClick={fetchBookings} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", borderRadius: 8, border: "1px solid #BFDBFE", background: "#fff", color: "#3B82F6", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              <RefreshIcon spinning={spinning} /> Refresh
             </button>
-
-            {/* ✅ Logout button */}
-            <button
-              onClick={handleLogout}
-              style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 18px", borderRadius: 8, border: "1px solid #FECACA", background: "#FFF5F5", color: "#DC2626", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-            >
+            <button onClick={handleLogout} style={{ padding: "9px 18px", borderRadius: 8, border: "1px solid #FECACA", background: "#FFF5F5", color: "#DC2626", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
               Logout
             </button>
           </div>
         </div>
 
-        {/* ── Stats ── */}
+        {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, marginBottom: "1.75rem" }}>
           <StatCard label="Total bookings" value={counts.total} valueColor="#1E3A5F" />
           <StatCard label="Pending" value={counts.pending} dotColor="#F59E0B" valueColor="#92400E" />
@@ -185,21 +174,16 @@ export default function AdminPage() {
           <StatCard label="Completed" value={counts.completed} dotColor="#22C55E" valueColor="#166534" />
         </div>
 
-        {/* ── Filter Tabs ── */}
+        {/* Filter Tabs */}
         <div style={{ display: "flex", gap: 6, marginBottom: "1.25rem", flexWrap: "wrap" }}>
-          {filters.map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`admin-filter-tab${filter === f ? " active-tab" : ""}`}
-              style={{ padding: "6px 16px", borderRadius: 999, fontSize: 12, fontWeight: 600, border: "1px solid #BFDBFE", cursor: "pointer", background: filter === f ? "#1E40AF" : "#fff", color: filter === f ? "#fff" : "#3B82F6", textTransform: "capitalize" }}
-            >
+          {filters.map(f => (
+            <button key={f} onClick={() => setFilter(f)} className={`admin-filter-tab${filter === f ? " active-tab" : ""}`} style={{ padding: "6px 16px", borderRadius: 999, fontSize: 12, fontWeight: 600, border: "1px solid #BFDBFE", cursor: "pointer", background: filter === f ? "#1E40AF" : "#fff", color: filter === f ? "#fff" : "#3B82F6", textTransform: "capitalize" }}>
               {f === "all" ? `All (${counts.total})` : `${f} (${counts[f]})`}
             </button>
           ))}
         </div>
 
-        {/* ── Bookings Table ── */}
+        {/* Bookings Table */}
         <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #E2EAF4", boxShadow: "0 2px 12px rgba(30,64,175,0.07)", overflow: "hidden" }}>
           {loading ? (
             <div style={{ padding: "3rem", textAlign: "center", color: "#7B94B5", fontSize: 13 }}>Loading bookings…</div>
@@ -208,23 +192,18 @@ export default function AdminPage() {
               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                 <colgroup>
                   <col style={{ width: "14%" }} /><col style={{ width: "13%" }} /><col style={{ width: "13%" }} />
-                  <col style={{ width: "11%" }} /><col style={{ width: "22%" }} /><col style={{ width: "11%" }} />
-                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "11%" }} /><col style={{ width: "22%" }} /><col style={{ width: "11%" }} /><col style={{ width: "16%" }} />
                 </colgroup>
                 <thead>
                   <tr style={{ background: "#F0F6FF" }}>
-                    {["Name", "Phone", "Service", "Option", "Address", "Status", "Time"].map((h) => (
+                    {["Name", "Phone", "Service", "Option", "Address", "Status", "Time"].map(h => (
                       <th key={h} style={{ padding: "11px 16px", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#7B94B5", fontWeight: 700, borderBottom: "1px solid #E2EAF4", textAlign: "left", whiteSpace: "nowrap" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} style={{ padding: "2rem", textAlign: "center", color: "#7B94B5", fontSize: 13 }}>
-                        No bookings found
-                      </td>
-                    </tr>
+                    <tr><td colSpan={7} style={{ padding: "2rem", textAlign: "center", color: "#7B94B5", fontSize: 13 }}>No bookings found</td></tr>
                   ) : (
                     filtered.map((b, i) => (
                       <tr key={i} className="admin-tbl-row" style={{ borderBottom: "1px solid #EEF4FF" }}>
@@ -236,16 +215,8 @@ export default function AdminPage() {
                         <td style={td}>
                           <StatusBadge status={b.status} />
                           <div style={{ marginTop: 6, display: "flex", gap: 5 }}>
-                            {b.status === "pending" && (
-                              <button onClick={() => updateStatus(b._id, "accepted")} style={{ fontSize: 10, padding: "4px 8px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>
-                                Accept
-                              </button>
-                            )}
-                            {b.status === "accepted" && (
-                              <button onClick={() => updateStatus(b._id, "completed")} style={{ fontSize: 10, padding: "4px 8px", background: "#22C55E", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>
-                                Complete
-                              </button>
-                            )}
+                            {b.status === "pending" && <button onClick={() => updateStatus(b._id, "accepted")} style={{ fontSize: 10, padding: "4px 8px", background: "#3B82F6", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Accept</button>}
+                            {b.status === "accepted" && <button onClick={() => updateStatus(b._id, "completed")} style={{ fontSize: 10, padding: "4px 8px", background: "#22C55E", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Complete</button>}
                           </div>
                         </td>
                         <td style={{ ...td, fontFamily: "'DM Mono', monospace", fontSize: 11, color: "#93AECB" }}>
@@ -260,7 +231,7 @@ export default function AdminPage() {
           )}
         </div>
 
-        {/* ── Users Table ── */}
+        {/* Users Table */}
         <div style={{ marginTop: "2rem", background: "#fff", borderRadius: 14, border: "1px solid #E2EAF4", overflow: "hidden" }}>
           <div style={{ padding: "1rem 1.5rem", borderBottom: "1px solid #E2EAF4" }}>
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1E3A5F" }}>Users & Service Men</h2>
@@ -269,7 +240,7 @@ export default function AdminPage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#F0F6FF" }}>
-                  {["Name", "Email", "Role", "Action"].map((h) => (
+                  {["Name", "Email", "Role", "Actions"].map(h => (
                     <th key={h} style={{ padding: "11px 16px", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "#7B94B5", fontWeight: 700, borderBottom: "1px solid #E2EAF4", textAlign: "left" }}>{h}</th>
                   ))}
                 </tr>
@@ -278,15 +249,30 @@ export default function AdminPage() {
                 {users.length === 0 ? (
                   <tr><td colSpan={4} style={{ padding: "2rem", textAlign: "center", color: "#7B94B5", fontSize: 13 }}>No users found</td></tr>
                 ) : (
-                  users.map((u) => (
+                  users.map(u => (
                     <tr key={u._id} className="admin-tbl-row" style={{ borderBottom: "1px solid #EEF4FF" }}>
                       <td style={{ ...td, fontWeight: 600 }}>{u.name}</td>
                       <td style={td}>{u.email}</td>
-                      <td style={td}>{u.role}</td>
                       <td style={td}>
-                        <button onClick={() => setDeleteId(u._id)} style={{ fontSize: 11, padding: "5px 12px", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 6, cursor: "pointer" }}>
-                          Delete
-                        </button>
+                        <span style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 999, background: roleColor[u.role]?.bg || "#F0F2F5", color: roleColor[u.role]?.color || "#888780" }}>
+                          {u.role}
+                        </span>
+                      </td>
+                      <td style={td}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            onClick={() => handleViewUser(u)}
+                            style={{ fontSize: 11, padding: "5px 12px", background: "#EEF4FF", color: "#1E40AF", border: "1px solid #BFDBFE", borderRadius: 6, cursor: "pointer" }}
+                          >
+                            View
+                          </button>
+                          <button
+                            onClick={() => setDeleteId(u._id)}
+                            style={{ fontSize: 11, padding: "5px 12px", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 6, cursor: "pointer" }}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -303,7 +289,86 @@ export default function AdminPage() {
         )}
       </div>
 
-      {/* ── Delete Modal ── */}
+      {/* ── User Detail Modal ── */}
+      {selectedUser && (
+        <div onClick={() => setSelectedUser(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: "1rem" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 480, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+
+            {/* Modal Header */}
+            <div style={{ background: "#0A2540", padding: "1.25rem 1.5rem", borderRadius: "16px 16px 0 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{selectedUser.name?.charAt(0).toUpperCase()}</span>
+                </div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{selectedUser.name}</div>
+                  <div style={{ fontSize: 11, color: "#5DCAA5", marginTop: 2 }}>{selectedUser.role}</div>
+                </div>
+              </div>
+              <button onClick={() => setSelectedUser(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9AAFC7", fontSize: 20 }}>✕</button>
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display: "flex", borderBottom: "1px solid #E2EAF4" }}>
+              {["profile", "bookings"].map(t => (
+                <button key={t} onClick={() => setModalTab(t)} style={{ flex: 1, padding: "12px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: modalTab === t ? "#F0FBF6" : "#fff", color: modalTab === t ? "#1D9E75" : "#7B94B5", borderBottom: modalTab === t ? "2px solid #1D9E75" : "2px solid transparent", textTransform: "capitalize" }}>
+                  {t === "bookings" ? `Bookings (${userBookings.length})` : "Profile"}
+                </button>
+              ))}
+            </div>
+
+            {/* Modal Content */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem" }}>
+              {modalLoading ? (
+                <div style={{ textAlign: "center", color: "#7B94B5", padding: "2rem" }}>Loading...</div>
+              ) : modalTab === "profile" ? (
+                <div>
+                  {[
+                    ["Name", selectedUser.name],
+                    ["Email", selectedUser.email],
+                    ["Role", selectedUser.role],
+                    ["Phone", selectedUser.phone || "—"],
+                    ["Specialty", selectedUser.specialty || "—"],
+                    ["Bio", selectedUser.bio || "—"],
+                    ["Rating", selectedUser.rating ? `${selectedUser.rating} ⭐ (${selectedUser.totalReviews} reviews)` : "No ratings"],
+                    ["Joined", new Date(selectedUser.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })],
+                  ].map(([label, val]) => (
+                    <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #F0F2F5" }}>
+                      <span style={{ fontSize: 12, color: "#7B94B5", fontWeight: 600 }}>{label}</span>
+                      <span style={{ fontSize: 12, color: "#1E3A5F", fontWeight: 600, maxWidth: "60%", textAlign: "right" }}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div>
+                  {userBookings.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#7B94B5", padding: "2rem", fontSize: 13 }}>No bookings found</div>
+                  ) : (
+                    userBookings.map((b, i) => (
+                      <div key={i} style={{ background: "#F9FAFB", borderRadius: 10, padding: "12px 14px", marginBottom: 8, border: "1px solid #E2EAF4" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1E3A5F" }}>{b.service}</div>
+                          <StatusBadge status={b.status} />
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                          {[["Name", b.name], ["Phone", b.phone], ["Address", b.address], ["Time", new Date(b.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })]].map(([label, val]) => (
+                            <div key={label}>
+                              <div style={{ fontSize: 10, color: "#7B94B5" }}>{label}</div>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: "#1E3A5F" }}>{val}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Modal */}
       {deleteId && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
           <div style={{ background: "#fff", padding: "1.5rem", borderRadius: 12, width: 300, textAlign: "center" }}>

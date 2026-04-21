@@ -8,31 +8,26 @@ const CalendarIcon = () => (
     <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
   </svg>
 );
-
 const CheckMark = () => (
   <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
     <path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
-
 const CheckCircle = () => (
   <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
     <path d="M5 13l4 4L19 7" stroke="#1D9E75" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
-
 const CloseIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
     <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 );
-
 const BellIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
   </svg>
 );
-
 const UserIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
@@ -55,12 +50,18 @@ export default function Home() {
   const [sidebarTab, setSidebarTab] = useState("profile");
   const [bookingHistory, setBookingHistory] = useState([]);
   const [userNotifications, setUserNotifications] = useState([]);
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState("");
+  const [reviewed, setReviewed] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [showReviewPopup, setShowReviewPopup] = useState(false);
 
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem("user"));
     if (stored) setUser(stored);
   }, []);
 
+  // Polling — serviceman accept করলে profile button দেখাবে
   useEffect(() => {
     if (!confirmed || !confirmedBooking) return;
     const interval = setInterval(async () => {
@@ -75,7 +76,7 @@ export default function Home() {
         if (updated?.servicemanId) {
           setConfirmedBooking(updated);
           setUserNotifications(prev => [{
-            message: `Your booking has been accepted!`,
+            message: "Your booking has been accepted!",
             service: updated.service,
             servicemanId: updated.servicemanId,
             createdAt: new Date().toISOString(),
@@ -88,12 +89,29 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [confirmed]);
 
-  const fetchBookingHistory = async (userId) => {
+  // Polling — completed হলে review popup দেখাবে
+useEffect(() => {
+  if (!confirmedBooking?.servicemanId || reviewed) return;
+  const interval = setInterval(async () => {
     const res = await fetch("/api/booking");
     const data = await res.json();
     if (data.success) {
-      setBookingHistory(data.data.filter(b => b.userId === userId));
+      const updated = data.data.find(b =>
+        b._id?.toString() === confirmedBooking._id?.toString()
+      );
+      if (updated?.status === "completed") {
+        setShowReviewPopup(true);
+        clearInterval(interval);
+      }
     }
+  }, 3000);
+  return () => clearInterval(interval);
+}, [confirmedBooking?.servicemanId]);
+
+  const fetchBookingHistory = async (userId) => {
+    const res = await fetch("/api/booking");
+    const data = await res.json();
+    if (data.success) setBookingHistory(data.data.filter(b => b.userId === userId));
   };
 
   const handleOpenSidebar = () => {
@@ -146,6 +164,36 @@ export default function Home() {
     }
   };
 
+  const handleSubmitReview = async () => {
+    if (!rating) { alert("Please select a rating"); return; }
+    setReviewLoading(true);
+    try {
+      const res = await fetch("/api/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingId: confirmedBooking._id,
+          servicemanId: confirmedBooking.servicemanId,
+          userId: user?.id,
+          userName: user?.name,
+          rating,
+          comment,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setReviewed(true);
+        setShowReviewPopup(false);
+      } else {
+        alert(data.message || "Failed to submit review");
+      }
+    } catch {
+      alert("Something went wrong.");
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
   const handleReset = () => {
     setActiveService(null);
     setSelectedOption(null);
@@ -154,6 +202,10 @@ export default function Home() {
     setName("");
     setPhone("");
     setAddress("");
+    setRating(0);
+    setComment("");
+    setReviewed(false);
+    setShowReviewPopup(false);
   };
 
   const handleLogout = () => {
@@ -176,56 +228,97 @@ export default function Home() {
   return (
     <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", paddingBottom: "2rem" }}>
 
+      {/* ── Review Popup ── */}
+      {showReviewPopup && !reviewed && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(10,37,64,0.65)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem", backdropFilter: "blur(6px)" }}>
+          <div style={{ background: "#fff", borderRadius: 24, width: "100%", maxWidth: 360, padding: "1.75rem", position: "relative", boxShadow: "0 32px 80px rgba(10,37,64,0.4), 0 8px 24px rgba(10,37,64,0.2), 0 2px 8px rgba(0,0,0,0.1)", border: "1px solid rgba(255,255,255,0.6)" }}>
+
+            {/* Close */}
+            <button
+              onClick={() => setShowReviewPopup(false)}
+              style={{ position: "absolute", top: 14, right: 14, width: 30, height: 30, borderRadius: "50%", background: "#F0F2F5", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#888780", boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }}
+            >
+              <CloseIcon />
+            </button>
+
+            {/* Header */}
+            <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
+              <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px", boxShadow: "0 8px 24px rgba(29,158,117,0.45)" }}>
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+                  <path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#2C2C2A", marginBottom: 6 }}>Job Completed!</div>
+              <div style={{ fontSize: 13, color: "#888780", lineHeight: 1.6 }}>How was your experience?<br />Your feedback helps others.</div>
+            </div>
+
+            {/* Stars */}
+            <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 8 }}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <div
+                  key={star}
+                  onClick={() => setRating(star)}
+                  style={{ cursor: "pointer", fontSize: 34, transition: "transform 0.15s", transform: star <= rating ? "scale(1.15)" : "scale(1)", filter: star <= rating ? "drop-shadow(0 3px 6px rgba(245,158,11,0.5))" : "grayscale(1) opacity(0.4)" }}
+                >
+                  ⭐
+                </div>
+              ))}
+            </div>
+
+            {/* Rating label */}
+            <div style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "#1D9E75", marginBottom: "1rem", minHeight: 18 }}>
+              {rating > 0 ? ["", "Poor", "Fair", "Good", "Very Good", "Excellent!"][rating] : ""}
+            </div>
+
+            {/* Comment */}
+            <textarea
+              placeholder="Share your experience (optional)"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E7EB", borderRadius: 12, fontSize: 13, fontFamily: "'Sora', sans-serif", color: "#2C2C2A", background: "#FAFAFA", outline: "none", boxSizing: "border-box", resize: "none", height: 80, marginBottom: "1.25rem" }}
+            />
+
+            {/* Submit */}
+            <button
+              onClick={handleSubmitReview}
+              disabled={reviewLoading || rating === 0}
+              style={{ width: "100%", background: rating === 0 ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 14, padding: "14px", fontSize: 14, fontWeight: 700, cursor: rating === 0 ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 10, boxShadow: rating > 0 ? "0 6px 20px rgba(29,158,117,0.4)" : "none" }}
+            >
+              {reviewLoading ? "Submitting..." : "Submit Review"}
+            </button>
+
+            <button
+              onClick={() => setShowReviewPopup(false)}
+              style={{ width: "100%", background: "transparent", border: "none", color: "#B4B2A9", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 4 }}
+            >
+              Skip for now
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Sidebar ── */}
       {showSidebar && (
         <div onClick={() => setShowSidebar(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(10,37,64,0.5)" }}>
           <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 300, background: "#fff", display: "flex", flexDirection: "column" }}>
-
-            {/* Sidebar Header */}
             <div style={{ background: "#0A2540", padding: "1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>My Account</div>
-              <button onClick={() => setShowSidebar(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9AAFC7" }}>
-                <CloseIcon />
-              </button>
+              <button onClick={() => setShowSidebar(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9AAFC7" }}><CloseIcon /></button>
             </div>
-
-            {/* Tabs */}
             <div style={{ display: "flex", borderBottom: "1px solid #E5E7EB" }}>
-              {[
-                { key: "profile", label: "Profile" },
-                { key: "history", label: "History" },
-                { key: "notifications", label: `Notifications${unreadCount > 0 ? ` (${unreadCount})` : ""}` },
-              ].map(t => (
-                <button
-                  key={t.key}
-                  onClick={() => setSidebarTab(t.key)}
-                  style={{
-                    flex: 1, padding: "10px 4px", fontSize: 11, fontWeight: 600,
-                    border: "none", cursor: "pointer", fontFamily: "inherit",
-                    background: sidebarTab === t.key ? "#F0FBF6" : "#fff",
-                    color: sidebarTab === t.key ? "#1D9E75" : "#888780",
-                    borderBottom: sidebarTab === t.key ? "2px solid #1D9E75" : "2px solid transparent",
-                  }}
-                >
+              {[{ key: "profile", label: "Profile" }, { key: "history", label: "History" }, { key: "notifications", label: `Notif${unreadCount > 0 ? ` (${unreadCount})` : ""}` }].map(t => (
+                <button key={t.key} onClick={() => setSidebarTab(t.key)} style={{ flex: 1, padding: "10px 4px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: sidebarTab === t.key ? "#F0FBF6" : "#fff", color: sidebarTab === t.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === t.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
                   {t.label}
                 </button>
               ))}
             </div>
-
-            {/* Tab Content */}
             <div style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
-
-              {/* Profile Tab */}
               {sidebarTab === "profile" && (
                 <div>
                   <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
                     <span style={{ fontSize: 26, fontWeight: 700, color: "#1D9E75" }}>{user?.name?.charAt(0).toUpperCase()}</span>
                   </div>
-                  {[
-                    ["Name", user?.name],
-                    ["Email", user?.email],
-                    ["Role", user?.role],
-                  ].map(([label, val]) => (
+                  {[["Name", user?.name], ["Email", user?.email], ["Role", user?.role]].map(([label, val]) => (
                     <div key={label} style={{ background: "#F9FAFB", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
                       <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: "#2C2C2A" }}>{val}</div>
@@ -233,8 +326,6 @@ export default function Home() {
                   ))}
                 </div>
               )}
-
-              {/* History Tab */}
               {sidebarTab === "history" && (
                 <div>
                   {bookingHistory.length === 0 ? (
@@ -244,18 +335,11 @@ export default function Home() {
                       <div key={i} style={{ background: "#F9FAFB", borderRadius: 10, padding: "10px 14px", marginBottom: 8, border: "1px solid #E5E7EB" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: "#2C2C2A" }}>{b.service}</div>
-                          <span style={{ fontSize: 10, fontWeight: 600, color: statusColor[b.status] || "#888780", background: "#F0F2F5", borderRadius: 6, padding: "2px 8px" }}>
-                            {b.status}
-                          </span>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: statusColor[b.status] || "#888780", background: "#F0F2F5", borderRadius: 6, padding: "2px 8px" }}>{b.status}</span>
                         </div>
-                        <div style={{ fontSize: 11, color: "#888780" }}>
-                          {new Date(b.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-                        </div>
+                        <div style={{ fontSize: 11, color: "#888780" }}>{new Date(b.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</div>
                         {b.servicemanId && (
-                          <button
-                            onClick={() => { router.push(`/serviceman/${b.servicemanId}`); setShowSidebar(false); }}
-                            style={{ marginTop: 6, fontSize: 11, color: "#1D9E75", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, fontWeight: 600 }}
-                          >
+                          <button onClick={() => { router.push(`/serviceman/${b.servicemanId}`); setShowSidebar(false); }} style={{ marginTop: 6, fontSize: 11, color: "#1D9E75", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, fontWeight: 600 }}>
                             View Serviceman →
                           </button>
                         )}
@@ -264,47 +348,29 @@ export default function Home() {
                   )}
                 </div>
               )}
-
-              {/* Notifications Tab */}
               {sidebarTab === "notifications" && (
                 <div>
                   {userNotifications.length === 0 ? (
                     <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>No notifications yet</div>
                   ) : (
                     userNotifications.map((n, i) => (
-                      <div
-                        key={i}
-                        onClick={() => {
-                          setUserNotifications(prev => prev.map((item, idx) => idx === i ? { ...item, read: true } : item));
-                        }}
-                        style={{ background: n.read ? "#F9FAFB" : "#F0FBF6", borderRadius: 10, padding: "10px 14px", marginBottom: 8, border: `1px solid ${n.read ? "#E5E7EB" : "#9FE1CB"}`, cursor: "pointer" }}
-                      >
+                      <div key={i} onClick={() => setUserNotifications(prev => prev.map((item, idx) => idx === i ? { ...item, read: true } : item))} style={{ background: n.read ? "#F9FAFB" : "#F0FBF6", borderRadius: 10, padding: "10px 14px", marginBottom: 8, border: `1px solid ${n.read ? "#E5E7EB" : "#9FE1CB"}`, cursor: "pointer" }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: "#2C2C2A", marginBottom: 4 }}>{n.message}</div>
                         <div style={{ fontSize: 11, color: "#888780", marginBottom: 4 }}>{n.service}</div>
                         {n.servicemanId && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); router.push(`/serviceman/${n.servicemanId}`); setShowSidebar(false); }}
-                            style={{ fontSize: 11, color: "#1D9E75", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, fontWeight: 600 }}
-                          >
+                          <button onClick={(e) => { e.stopPropagation(); router.push(`/serviceman/${n.servicemanId}`); setShowSidebar(false); }} style={{ fontSize: 11, color: "#1D9E75", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, fontWeight: 600 }}>
                             View Serviceman →
                           </button>
                         )}
-                        <div style={{ fontSize: 10, color: "#B4B2A9", marginTop: 4 }}>
-                          {new Date(n.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-                        </div>
+                        <div style={{ fontSize: 10, color: "#B4B2A9", marginTop: 4 }}>{new Date(n.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</div>
                       </div>
                     ))
                   )}
                 </div>
               )}
             </div>
-
-            {/* Logout */}
             <div style={{ padding: "1rem", borderTop: "1px solid #E5E7EB" }}>
-              <button
-                onClick={handleLogout}
-                style={{ width: "100%", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-              >
+              <button onClick={handleLogout} style={{ width: "100%", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                 Logout
               </button>
             </div>
@@ -363,39 +429,23 @@ export default function Home() {
               <div style={{ fontSize: 11, color: "#5DCAA5", marginTop: 2, letterSpacing: "0.04em", textTransform: "uppercase" }}>Home Services</div>
             </div>
           </div>
-
-          {/* Right side buttons */}
           {user ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {/* Notification bell */}
-              <button
-                onClick={() => { handleOpenSidebar(); setSidebarTab("notifications"); }}
-                style={{ position: "relative", background: "transparent", border: "none", cursor: "pointer", color: "#9AAFC7", padding: 4 }}
-              >
+              <button onClick={() => { handleOpenSidebar(); setSidebarTab("notifications"); }} style={{ position: "relative", background: "transparent", border: "none", cursor: "pointer", color: "#9AAFC7", padding: 4 }}>
                 <BellIcon />
-                {unreadCount > 0 && (
-                  <span style={{ position: "absolute", top: 0, right: 0, width: 8, height: 8, background: "#DC2626", borderRadius: "50%" }} />
-                )}
+                {unreadCount > 0 && <span style={{ position: "absolute", top: 0, right: 0, width: 8, height: 8, background: "#DC2626", borderRadius: "50%" }} />}
               </button>
-              {/* User icon */}
-              <button
-                onClick={handleOpenSidebar}
-                style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "5px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
-              >
+              <button onClick={handleOpenSidebar} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "5px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
                 <UserIcon />
                 {user.name}
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => router.push("/login")}
-              style={{ background: "#1D9E75", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-            >
+            <button onClick={() => router.push("/login")} style={{ background: "#1D9E75", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
               Login
             </button>
           )}
         </div>
-
         <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Trusted Home Services</div>
         <div style={{ fontSize: 13, color: "#9AAFC7" }}>Professional helpers, right at your door</div>
         <div style={{ display: "flex", gap: 14, marginTop: "1rem" }}>
@@ -407,13 +457,10 @@ export default function Home() {
           ))}
         </div>
         {user && user.role === "user" && (
-  <button
-    onClick={() => router.push("/serviceman")}
-    style={{ marginTop: "1rem", background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
-  >
-    View Our Servicemen →
-  </button>
-)}
+          <button onClick={() => router.push("/servicemen")} style={{ marginTop: "1rem", background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            View Our Servicemen →
+          </button>
+        )}
       </div>
 
       {/* ── Services Grid ── */}
@@ -490,15 +537,18 @@ export default function Home() {
               </div>
 
               {confirmedBooking?.servicemanId ? (
-                <button
-                  onClick={() => router.push(`/serviceman/${confirmedBooking.servicemanId}`)}
-                  style={{ width: "100%", background: "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginBottom: 8 }}
-                >
+                <button onClick={() => router.push(`/serviceman/${confirmedBooking.servicemanId}`)} style={{ width: "100%", background: "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginBottom: 8 }}>
                   View Serviceman Profile →
                 </button>
               ) : (
                 <div style={{ fontSize: 12, color: "#888780", textAlign: "center", marginBottom: 8, padding: "8px", background: "#F9FAFB", borderRadius: 8 }}>
                   Waiting for serviceman to accept...
+                </div>
+              )}
+
+              {reviewed && (
+                <div style={{ background: "#F0FBF6", borderRadius: 10, padding: "10px 14px", marginBottom: 12, textAlign: "center", border: "1px solid #9FE1CB" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1D9E75" }}>✓ Review submitted!</div>
                 </div>
               )}
 
