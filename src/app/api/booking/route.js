@@ -10,13 +10,12 @@ export async function POST(req) {
 
     if (!userId) {
       return Response.json(
-        { success: false, message: "Unauthorized", code: "NOT_LOGGED_IN" },
-        { status: 401 }
-      );
+  { success: true, message: "Booking saved successfully", data: { ...booking, _id: result.insertedId } },
+  { status: 201 }
+);
     }
 
     if (!service || option === null || option === undefined || !name || !phone || !address) {
-      console.error("Validation failed: Missing required fields");
       return Response.json(
         { success: false, message: "Missing required fields" },
         { status: 400 }
@@ -36,8 +35,24 @@ export async function POST(req) {
 
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
-    await db.collection("bookings").insertOne(booking);
+    const result = await db.collection("bookings").insertOne(booking);
     console.log("Booking inserted successfully");
+
+    const servicemen = await db.collection("users").find({ role: "serviceman" }).toArray();
+    const notifications = servicemen.map((s) => ({
+      servicemanId: s._id.toString(),
+      bookingId: result.insertedId.toString(),
+      service,
+      name,
+      phone,
+      address,
+      option,
+      status: "unread",
+      createdAt: new Date(),
+    }));
+    if (notifications.length > 0) {
+      await db.collection("notifications").insertMany(notifications);
+    }
 
     return Response.json(
       { success: true, message: "Booking saved successfully", data: booking },
@@ -54,9 +69,14 @@ export async function POST(req) {
 
 export async function GET(req) {
   try {
+    const { searchParams } = new URL(req.url);
+    const servicemanId = searchParams.get("servicemanId");
+
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
-    const bookings = await db.collection("bookings").find({}).toArray();
+
+    const query = servicemanId ? { servicemanId } : {};
+    const bookings = await db.collection("bookings").find(query).toArray();
 
     return Response.json({ success: true, data: bookings });
   } catch (error) {
@@ -70,7 +90,7 @@ export async function GET(req) {
 
 export async function PATCH(req) {
   try {
-    const { id, status } = await req.json();
+    const { id, status, servicemanId } = await req.json();
 
     if (!id || !status) {
       return Response.json(
@@ -82,9 +102,12 @@ export async function PATCH(req) {
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
 
+    const updateData = { status };
+    if (servicemanId) updateData.servicemanId = servicemanId;  // ✅ servicemanId save
+
     await db.collection("bookings").updateOne(
       { _id: new ObjectId(id) },
-      { $set: { status } }
+      { $set: updateData }
     );
 
     return Response.json({ success: true, message: "Status updated" });

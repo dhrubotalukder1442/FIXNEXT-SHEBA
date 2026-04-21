@@ -2,7 +2,7 @@ import clientPromise from "@/lib/mongodb";
 
 export async function POST(req) {
   try {
-    const { name, identifier, password } = await req.json();
+    const { name, identifier, password, role } = await req.json();
 
     if (!name || !identifier || !password) {
       return Response.json(
@@ -26,7 +26,7 @@ export async function POST(req) {
       name,
       email: identifier,
       password,
-      role: "user",
+      role: role || "user",
       createdAt: new Date(),
     });
 
@@ -36,7 +36,7 @@ export async function POST(req) {
         id: result.insertedId,
         name,
         email: identifier,
-        role: "user",
+        role: role || "user",
       },
     });
   } catch (error) {

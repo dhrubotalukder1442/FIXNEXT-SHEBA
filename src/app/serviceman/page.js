@@ -20,53 +20,88 @@ const StatusBadge = ({ status }) => {
 export default function ServicemanPage() {
   const router = useRouter();
   const [bookings, setBookings] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
   const [filter, setFilter] = useState("all");
 
-  useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem("user"));
-    if (!stored) {
-      router.push("/login");
-    } else if (stored.role !== "serviceman") {
-      router.push("/");
-    } else {
-      setUser(stored);
-    }
-  }, []);
-
-  const fetchBookings = async () => {
-    setLoading(true);
+  const fetchNotifications = async (userId) => {
     try {
-      const res = await fetch("/api/booking");
+      const res = await fetch(`/api/notifications?servicemanId=${userId}`);
       const data = await res.json();
-      if (data.success) setBookings(data.data);
+      if (data.success) setNotifications(data.data.filter(n => n.status === "unread"));
     } catch (err) {
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const updateStatus = async (id, status) => {
-    try {
-      await fetch("/api/booking", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status }),
-      });
-      fetchBookings();
-    } catch (err) {
-      console.error(err);
-    }
-  };
+
+ const fetchBookings = async (userId) => {
+  setLoading(true);
+  try {
+    const res = await fetch(`/api/booking?servicemanId=${userId}`);
+    const data = await res.json();
+    if (data.success) setBookings(data.data);
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setLoading(false);
+  }
+};
+
+ const updateStatus = async (id, status) => {
+  try {
+    await fetch("/api/booking", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status }),
+    });
+    fetchBookings(user.id); // ✅ user.id দাও
+  } catch (err) {
+    console.error(err);
+  }
+};
+
+  const handleAcceptNotification = async (n) => {
+  try {
+    await fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: n._id }),
+    });
+    await fetch("/api/booking", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: n.bookingId,
+        status: "accepted",
+        servicemanId: user.id,
+      }),
+    });
+    fetchNotifications(user.id);
+    fetchBookings(user.id); // ✅ user.id দাও
+  } catch (err) {
+    console.error(err);
+  }
+};
 
   const handleLogout = () => {
     localStorage.removeItem("user");
     router.push("/login");
   };
 
-  useEffect(() => { fetchBookings(); }, []);
+useEffect(() => {
+  const stored = JSON.parse(localStorage.getItem("user"));
+  if (!stored) {
+    router.push("/login");
+  } else if (stored.role !== "serviceman") {
+    router.push("/");
+  } else {
+    setUser(stored);
+    fetchNotifications(stored.id);
+    fetchBookings(stored.id); // ✅ নিজের id দিয়ে fetch
+  }
+}, []);
 
   const counts = {
     total: bookings.length,
@@ -85,9 +120,7 @@ export default function ServicemanPage() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Serviceman Panel</div>
-            <div style={{ fontSize: 12, color: "#5DCAA5", marginTop: 2 }}>
-              Welcome, {user?.name}
-            </div>
+            <div style={{ fontSize: 12, color: "#5DCAA5", marginTop: 2 }}>Welcome, {user?.name}</div>
           </div>
           <button
             onClick={handleLogout}
@@ -99,6 +132,44 @@ export default function ServicemanPage() {
       </div>
 
       <div style={{ padding: "1.25rem" }}>
+
+        {/* ── Notifications ── */}
+        {notifications.length > 0 && (
+          <div style={{ marginBottom: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+              New Bookings ({notifications.length})
+            </div>
+            {notifications.map((n, i) => (
+              <div key={i} style={{ background: "#F0FBF6", borderRadius: 12, border: "1px solid #9FE1CB", padding: "14px", marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#2C2C2A" }}>{n.name}</div>
+                    <div style={{ fontSize: 12, color: "#888780", marginTop: 2 }}>{n.phone}</div>
+                  </div>
+                  <div style={{ fontSize: 11, background: "#1D9E75", color: "#fff", borderRadius: 6, padding: "3px 8px" }}>New</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+                  {[
+                    ["Service", n.service],
+                    ["Option", n.option ?? "—"],
+                    ["Address", n.address],
+                  ].map(([label, val]) => (
+                    <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "8px 10px" }}>
+                      <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#2C2C2A" }}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => handleAcceptNotification(n)}
+                  style={{ width: "100%", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 8, padding: "10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+                >
+                  Accept
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* ── Stats ── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: "1.25rem" }}>

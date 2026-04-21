@@ -2,12 +2,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+
 export default function SignupPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [role, setRole] = useState("user");
 
   const inputStyle = {
     width: "100%",
@@ -24,28 +26,33 @@ export default function SignupPage() {
   };
 
   const handleSignup = async () => {
-    if (!name || !identifier || !password) return alert("Fill all the required fields");
+  if (!name || !identifier || !password) return alert("Fill all the required fields");
 
-    setLoading(true);
-    try {
-      const res = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, identifier, password }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        localStorage.setItem("user", JSON.stringify(data.user));
-        router.push("/");
+  setLoading(true);
+  try {
+    const res = await fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, identifier, password, role }), // ✅ role যোগ করো
+    });
+    const data = await res.json();
+    if (data.success) {
+      localStorage.setItem("user", JSON.stringify(data.user));
+      // ✅ role অনুযায়ী redirect
+      if (data.user.role === "serviceman") {
+        router.push("/serviceman");
       } else {
-        alert(data.message || "Signup failed");
+        router.push("/");
       }
-    } catch {
-      alert("Something went wrong.");
-    } finally {
-      setLoading(false);
+    } else {
+      alert(data.message || "Signup failed");
     }
-  };
+  } catch {
+    alert("Something went wrong.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem" }}>
@@ -72,6 +79,31 @@ export default function SignupPage() {
           <input placeholder="Your Name" value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
           <input placeholder="Phone or Email" value={identifier} onChange={(e) => setIdentifier(e.target.value)} style={inputStyle} />
           <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ ...inputStyle, marginBottom: "1.25rem" }} />
+
+
+                    {/* Role Selection */}
+          <div style={{ marginBottom: "1.25rem" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+              I am a
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["user", "serviceman"].map((r) => (
+                <div
+                  key={r}
+                  onClick={() => setRole(r)}
+                  style={{
+                    flex: 1, padding: "10px", borderRadius: 10, textAlign: "center",
+                    cursor: "pointer", fontSize: 13, fontWeight: 600,
+                    border: role === r ? "1.5px solid #1D9E75" : "1px solid #E5E7EB",
+                    background: role === r ? "#F0FBF6" : "#FAFAFA",
+                    color: role === r ? "#1D9E75" : "#888780",
+                  }}
+                >
+                  {r === "user" ? "👤 Customer" : "🔧 Serviceman"}
+                </div>
+              ))}
+            </div>
+          </div>
 
           <button
             onClick={handleSignup}
