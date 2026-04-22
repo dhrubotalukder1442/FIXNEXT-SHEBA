@@ -1,4 +1,5 @@
 import clientPromise from "@/lib/mongodb";
+import bcrypt from "bcryptjs";
 
 export async function POST(req) {
   try {
@@ -22,11 +23,19 @@ export async function POST(req) {
       );
     }
 
+    // ✅ Password hash করো
+    const hashedPassword = await bcrypt.hash(password, 12);
+
     const result = await db.collection("users").insertOne({
       name,
       email: identifier,
-      password,
+      password: hashedPassword,  // ✅ hashed password save
       role: role || "user",
+      specialty: "",
+      bio: "",
+      phone: "",
+      rating: 0,
+      totalReviews: 0,
       createdAt: new Date(),
     });
 

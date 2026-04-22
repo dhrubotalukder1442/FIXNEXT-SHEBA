@@ -1,4 +1,5 @@
 import clientPromise from "@/lib/mongodb";
+import bcrypt from "bcryptjs";
 
 export async function POST(req) {
   try {
@@ -14,15 +15,19 @@ export async function POST(req) {
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
 
-    // ✅ email or phone field can be used for login
-   const user = await db.collection("users").findOne({
-  $or: [
-    { email: identifier },
-    { phone: identifier }
-  ]
-});
+    const user = await db.collection("users").findOne({ email: identifier });
 
-    if (!user || user.password !== password) {
+    if (!user) {
+      return Response.json(
+        { success: false, message: "Invalid email or password" },
+        { status: 401 }
+      );
+    }
+
+    // ✅ bcrypt দিয়ে password compare করো
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
       return Response.json(
         { success: false, message: "Invalid email or password" },
         { status: 401 }

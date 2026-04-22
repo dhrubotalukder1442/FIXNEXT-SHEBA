@@ -7,6 +7,7 @@ export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const inputStyle = {
     width: "100%",
@@ -23,36 +24,45 @@ export default function LoginPage() {
   };
 
   const handleLogin = async (e) => {
-  e.preventDefault();
-  if (!identifier || !password) return alert("Fill all the required fields");
-
-  setLoading(true);
-  try {
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identifier, password }),
-    });
-    const data = await res.json();
-    if (data.success) {
-      localStorage.setItem("user", JSON.stringify(data.user));
-      
-      if (data.user.role === "admin") {
-        router.push("/admin");
-      } else if (data.user.role === "serviceman") {
-        router.push("/serviceman");
+    e.preventDefault();
+    if (!identifier || !password) return alert("Fill all the required fields");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier, password }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem("user", JSON.stringify(data.user));
+        if (data.user.role === "admin") router.push("/admin");
+        else if (data.user.role === "serviceman") router.push("/serviceman");
+        else router.push("/");
       } else {
-        router.push("/");
+        alert(data.message || "Login failed");
       }
-    } else {
-      alert(data.message || "Login failed");
+    } catch {
+      alert("Something went wrong.");
+    } finally {
+      setLoading(false);
     }
-  } catch {
-    alert("Something went wrong.");
-  } finally {
-    setLoading(false);
-  }
-};
+  };
+
+  const EyeIcon = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+
+  const EyeOffIcon = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
 
   return (
     <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem" }}>
@@ -82,33 +92,35 @@ export default function LoginPage() {
             onChange={(e) => setIdentifier(e.target.value)}
             style={inputStyle}
           />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={{ ...inputStyle, marginBottom: "1.25rem" }}
-          />
+
+          {/* Password with show/hide */}
+          <div style={{ position: "relative", marginBottom: "1.25rem" }}>
+            <input
+              type={showPassword ? "text" : "password"}
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={{ ...inputStyle, marginBottom: 0, paddingRight: 42 }}
+            />
+            <button
+              onClick={() => setShowPassword(!showPassword)}
+              style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#888780", padding: 0, display: "flex", alignItems: "center" }}
+            >
+              {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+            </button>
+          </div>
 
           <button
             onClick={handleLogin}
             disabled={loading}
-            style={{
-              width: "100%", background: loading ? "#B4B2A9" : "#1D9E75",
-              color: "#fff", border: "none", borderRadius: 12,
-              padding: "13px", fontSize: 14, fontWeight: 700,
-              cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit",
-            }}
+            style={{ width: "100%", background: loading ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit" }}
           >
             {loading ? "Signing in..." : "Sign in"}
           </button>
 
           <div style={{ textAlign: "center", fontSize: 13, color: "#888780", marginTop: "1rem" }}>
             Don't have an account?{" "}
-            <span
-              onClick={() => router.push("/signup")}
-              style={{ color: "#1D9E75", fontWeight: 700, cursor: "pointer" }}
-            >
+            <span onClick={() => router.push("/signup")} style={{ color: "#1D9E75", fontWeight: 700, cursor: "pointer" }}>
               Sign up
             </span>
           </div>
