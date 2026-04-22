@@ -14,8 +14,13 @@ export async function POST(req) {
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
 
-    // ✅ email field দিয়ে খুঁজছে
-    const user = await db.collection("users").findOne({ email: identifier });
+    // ✅ email or phone field can be used for login
+   const user = await db.collection("users").findOne({
+  $or: [
+    { email: identifier },
+    { phone: identifier }
+  ]
+});
 
     if (!user || user.password !== password) {
       return Response.json(
