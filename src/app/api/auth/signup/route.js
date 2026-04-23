@@ -1,5 +1,7 @@
 import clientPromise from "@/lib/mongodb";
 import bcrypt from "bcryptjs";
+import { signToken } from "@/lib/jwt";
+import { cookies } from "next/headers";
 
 export async function POST(req) {
   try {
@@ -23,13 +25,12 @@ export async function POST(req) {
       );
     }
 
-    // ✅ Password hash করো
     const hashedPassword = await bcrypt.hash(password, 12);
 
     const result = await db.collection("users").insertOne({
       name,
       email: identifier,
-      password: hashedPassword,  // ✅ hashed password save
+      password: hashedPassword,
       role: role || "user",
       specialty: "",
       bio: "",
@@ -37,6 +38,24 @@ export async function POST(req) {
       rating: 0,
       totalReviews: 0,
       createdAt: new Date(),
+    });
+
+    // ✅ JWT token বানাও
+    const token = await signToken({
+      id: result.insertedId.toString(),
+      name,
+      email: identifier,
+      role: role || "user",
+    });
+
+    // ✅ HttpOnly cookie তে save করো
+    const cookieStore = await cookies();
+    cookieStore.set("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7,
+      path: "/",
     });
 
     return Response.json({

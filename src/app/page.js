@@ -57,9 +57,15 @@ export default function Home() {
   const [showReviewPopup, setShowReviewPopup] = useState(false);
 
   useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem("user"));
-    if (stored) setUser(stored);
-  }, []);
+  fetch("/api/auth/me")
+    .then(r => r.json())
+    .then(data => {
+      if (data.success) {
+        setUser(data.user);
+        localStorage.setItem("user", JSON.stringify(data.user));
+      }
+    });
+}, []);
 
   // Polling — serviceman accept করলে profile button দেখাবে
   useEffect(() => {
@@ -208,11 +214,12 @@ useEffect(() => {
     setShowReviewPopup(false);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("user");
-    setUser(null);
-    setShowSidebar(false);
-  };
+  const handleLogout = async () => {
+  await fetch("/api/auth/logout", { method: "POST" });
+  localStorage.removeItem("user");
+  setUser(null);
+  setShowSidebar(false);
+};
 
   const unreadCount = userNotifications.filter(n => !n.read).length;
 

@@ -85,22 +85,26 @@ export default function ServicemanPage() {
   }
 };
 
-  const handleLogout = () => {
-    localStorage.removeItem("user");
-    router.push("/login");
-  };
-
+ const handleLogout = async () => {
+  await fetch("/api/auth/logout", { method: "POST" });
+  localStorage.removeItem("user");
+  router.push("/login");
+};
 useEffect(() => {
-  const stored = JSON.parse(localStorage.getItem("user"));
-  if (!stored) {
-    router.push("/login");
-  } else if (stored.role !== "serviceman") {
-    router.push("/");
-  } else {
-    setUser(stored);
-    fetchNotifications(stored.id);
-    fetchBookings(stored.id); // ✅ নিজের id দিয়ে fetch
-  }
+  fetch("/api/auth/me")
+    .then(r => r.json())
+    .then(data => {
+      if (!data.success) {
+        router.push("/login");
+      } else if (data.user.role !== "serviceman") {
+        router.push("/");
+      } else {
+        setUser(data.user);
+        localStorage.setItem("user", JSON.stringify(data.user));
+        fetchNotifications(data.user.id);
+        fetchBookings(data.user.id);
+      }
+    });
 }, []);
 
   const counts = {
