@@ -2,9 +2,20 @@ import clientPromise from "@/lib/mongodb";
 import bcrypt from "bcryptjs";
 import { signToken } from "@/lib/jwt";
 import { cookies } from "next/headers";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 export async function POST(req) {
   try {
+    // ✅ Rate limit check
+    const ip = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown";
+    const { allowed } = await checkRateLimit(ip, "login");
+    if (!allowed) {
+      return Response.json(
+        { success: false, message: "Too many login attempts. Please try again after 5 minutes." },
+        { status: 429 }
+      );
+    }
+
     const { identifier, password } = await req.json();
 
     if (!identifier || !password) {
@@ -34,7 +45,6 @@ export async function POST(req) {
       );
     }
 
-    // ✅ JWT token বানাও
     const token = await signToken({
       id: user._id.toString(),
       name: user.name,
@@ -42,13 +52,12 @@ export async function POST(req) {
       role: user.role,
     });
 
-    // ✅ HttpOnly cookie তে save করো
     const cookieStore = await cookies();
     cookieStore.set("token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
       path: "/",
     });
 
