@@ -1,23 +1,37 @@
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { sanitize, isValidPhone, sanitizeMongoInput } from "@/lib/validate";
 
 export async function POST(req) {
   try {
     const body = await req.json();
-    console.log("Request Body:", body);
-
-    const { service, option, name, phone, address, userId } = body;
+    
+    // ✅ Sanitize all inputs
+    const service = sanitize(body.service || "");
+    const option = body.option;
+    const name = sanitize(body.name || "");
+    const phone = sanitize(body.phone || "");
+    const address = sanitize(body.address || "");
+    const userId = sanitize(body.userId || "");
 
     if (!userId) {
       return Response.json(
-  { success: true, message: "Booking saved successfully", data: { ...booking, _id: result.insertedId } },
-  { status: 201 }
-);
+        { success: false, message: "Unauthorized", code: "NOT_LOGGED_IN" },
+        { status: 401 }
+      );
     }
 
+    // ✅ Validation
     if (!service || option === null || option === undefined || !name || !phone || !address) {
       return Response.json(
         { success: false, message: "Missing required fields" },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidPhone(phone)) {
+      return Response.json(
+        { success: false, message: "Invalid phone number" },
         { status: 400 }
       );
     }
@@ -36,7 +50,6 @@ export async function POST(req) {
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
     const result = await db.collection("bookings").insertOne(booking);
-    console.log("Booking inserted successfully");
 
     const servicemen = await db.collection("users").find({ role: "serviceman" }).toArray();
     const notifications = servicemen.map((s) => ({
@@ -55,7 +68,7 @@ export async function POST(req) {
     }
 
     return Response.json(
-      { success: true, message: "Booking saved successfully", data: booking },
+      { success: true, message: "Booking saved successfully", data: { ...booking, _id: result.insertedId } },
       { status: 201 }
     );
   } catch (error) {

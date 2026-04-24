@@ -3,10 +3,10 @@ import bcrypt from "bcryptjs";
 import { signToken } from "@/lib/jwt";
 import { cookies } from "next/headers";
 import { checkRateLimit } from "@/lib/rateLimit";
+import { isValidEmail, isValidPassword, sanitize } from "@/lib/validate";
 
 export async function POST(req) {
   try {
-    // ✅ Rate limit check
     const ip = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown";
     const { allowed } = await checkRateLimit(ip, "login");
     if (!allowed) {
@@ -16,11 +16,28 @@ export async function POST(req) {
       );
     }
 
-    const { identifier, password } = await req.json();
+    const body = await req.json();
+    const identifier = sanitize(body.identifier || "");
+    const password = body.password || ""; // password sanitize করবো না — bcrypt এ পাঠাতে হবে
 
+    // ✅ Validation
     if (!identifier || !password) {
       return Response.json(
         { success: false, message: "All fields are required" },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidEmail(identifier)) {
+      return Response.json(
+        { success: false, message: "Invalid email format" },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidPassword(password)) {
+      return Response.json(
+        { success: false, message: "Password must be at least 8 characters" },
         { status: 400 }
       );
     }

@@ -2,14 +2,48 @@ import clientPromise from "@/lib/mongodb";
 import bcrypt from "bcryptjs";
 import { signToken } from "@/lib/jwt";
 import { cookies } from "next/headers";
+import { isValidEmail, isValidPassword, isValidName, sanitize } from "@/lib/validate";
 
 export async function POST(req) {
   try {
-    const { name, identifier, password, role } = await req.json();
+    const body = await req.json();
+    const name = sanitize(body.name || "");
+    const identifier = sanitize(body.identifier || "");
+    const password = body.password || "";
+    const role = sanitize(body.role || "user");
 
+    // ✅ Validation
     if (!name || !identifier || !password) {
       return Response.json(
         { success: false, message: "All fields are required" },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidName(name)) {
+      return Response.json(
+        { success: false, message: "Name must be at least 2 characters" },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidEmail(identifier)) {
+      return Response.json(
+        { success: false, message: "Invalid email format" },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidPassword(password)) {
+      return Response.json(
+        { success: false, message: "Password must be at least 8 characters" },
+        { status: 400 }
+      );
+    }
+
+    if (!["user", "serviceman"].includes(role)) {
+      return Response.json(
+        { success: false, message: "Invalid role" },
         { status: 400 }
       );
     }
@@ -31,7 +65,7 @@ export async function POST(req) {
       name,
       email: identifier,
       password: hashedPassword,
-      role: role || "user",
+      role,
       specialty: "",
       bio: "",
       phone: "",
@@ -40,15 +74,13 @@ export async function POST(req) {
       createdAt: new Date(),
     });
 
-    // ✅ JWT token বানাও
     const token = await signToken({
       id: result.insertedId.toString(),
       name,
       email: identifier,
-      role: role || "user",
+      role,
     });
 
-    // ✅ HttpOnly cookie তে save করো
     const cookieStore = await cookies();
     cookieStore.set("token", token, {
       httpOnly: true,
@@ -64,7 +96,7 @@ export async function POST(req) {
         id: result.insertedId,
         name,
         email: identifier,
-        role: role || "user",
+        role,
       },
     });
   } catch (error) {
