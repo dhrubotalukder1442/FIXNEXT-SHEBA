@@ -2,18 +2,41 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+// Email validation
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+// Password strength checker
+const getPasswordStrength = (password) => {
+  if (!password) return null;
+  const checks = {
+    length: password.length >= 8,
+    uppercase: /[A-Z]/.test(password),
+    lowercase: /[a-z]/.test(password),
+    number: /[0-9]/.test(password),
+    special: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password),
+  };
+  const passed = Object.values(checks).filter(Boolean).length;
+  if (passed <= 2) return { level: "weak", color: "#DC2626", bg: "#FEE2E2", label: "Weak", width: "33%", checks };
+  if (passed <= 3) return { level: "medium", color: "#D97706", bg: "#FEF3C7", label: "Medium", width: "66%", checks };
+  return { level: "strong", color: "#16A34A", bg: "#DCFCE7", label: "Strong", width: "100%", checks };
+};
+
 export default function SignupPage() {
   const router = useRouter();
-  const [step, setStep] = useState(1); // 1: form, 2: otp
+  const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("user");
   const [showPassword, setShowPassword] = useState(false);
+  const [showStrength, setShowStrength] = useState(false);
   const [loading, setLoading] = useState(false);
   const [otp, setOtp] = useState("");
   const [otpLoading, setOtpLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [emailError, setEmailError] = useState("");
+
+  const strength = getPasswordStrength(password);
 
   const inputStyle = {
     width: "100%", padding: "10px 12px", marginBottom: 8,
@@ -32,8 +55,23 @@ export default function SignupPage() {
     }, 1000);
   };
 
+  const handleEmailChange = (e) => {
+    const val = e.target.value;
+    setIdentifier(val);
+    if (val && !isValidEmail(val)) {
+      setEmailError("Please enter a valid email address");
+    } else {
+      setEmailError("");
+    }
+  };
+
   const handleSendOTP = async () => {
-    if (!name || !identifier || !password) return alert("Fill all the required fields");
+    if (!name) return alert("Please enter your name");
+    if (!identifier) return alert("Please enter your email");
+    if (!isValidEmail(identifier)) return alert("Please enter a valid email address");
+    if (!password) return alert("Please enter a password");
+    if (strength?.level === "weak") return alert("Password is too weak. Please use a stronger password.");
+
     setLoading(true);
     try {
       const res = await fetch("/api/auth/send-otp", {
@@ -77,7 +115,6 @@ export default function SignupPage() {
     if (!otp) return alert("Please enter OTP");
     setLoading(true);
     try {
-      // OTP verify
       const verifyRes = await fetch("/api/auth/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,7 +127,6 @@ export default function SignupPage() {
         return;
       }
 
-      // Account create
       const signupRes = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,6 +161,12 @@ export default function SignupPage() {
     </svg>
   );
 
+  const CheckIcon = ({ passed }) => (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={passed ? "#16A34A" : "#B4B2A9"} strokeWidth="2.5" strokeLinecap="round">
+      {passed ? <path d="M5 13l4 4L19 7" /> : <circle cx="12" cy="12" r="10" />}
+    </svg>
+  );
+
   return (
     <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem" }}>
       <div style={{ width: "100%", maxWidth: 380 }}>
@@ -150,22 +192,105 @@ export default function SignupPage() {
               <div style={{ fontSize: 20, fontWeight: 700, color: "#2C2C2A", marginBottom: 4 }}>Create account</div>
               <div style={{ fontSize: 13, color: "#888780", marginBottom: "1.25rem" }}>Create a new account</div>
 
-              <input placeholder="Your Name" value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
-              <input placeholder="Email" value={identifier} onChange={(e) => setIdentifier(e.target.value)} style={inputStyle} />
+              {/* Name */}
+              <input
+                placeholder="Your Name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                style={inputStyle}
+              />
 
-              <div style={{ position: "relative", marginBottom: "1.25rem" }}>
+              {/* Email */}
+              <div style={{ marginBottom: 8 }}>
                 <input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  style={{ ...inputStyle, marginBottom: 0, paddingRight: 42 }}
+                  placeholder="Email"
+                  value={identifier}
+                  onChange={handleEmailChange}
+                  style={{
+                    ...inputStyle,
+                    marginBottom: 0,
+                    border: emailError ? "1px solid #DC2626" : "1px solid #E5E7EB",
+                  }}
                 />
-                <button onClick={() => setShowPassword(!showPassword)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#888780", padding: 0, display: "flex", alignItems: "center" }}>
-                  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-                </button>
+                {emailError && (
+                  <div style={{ fontSize: 11, color: "#DC2626", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#DC2626" strokeWidth="2.5" strokeLinecap="round">
+                      <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    {emailError}
+                  </div>
+                )}
+                {identifier && !emailError && (
+                  <div style={{ fontSize: 11, color: "#16A34A", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round">
+                      <path d="M5 13l4 4L19 7" />
+                    </svg>
+                    Valid email
+                  </div>
+                )}
               </div>
 
+              {/* Password */}
+              <div style={{ marginBottom: "1.25rem" }}>
+                <div style={{ position: "relative" }}>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value); setShowStrength(true); }}
+                    onFocus={() => setShowStrength(true)}
+                    style={{ ...inputStyle, marginBottom: 0, paddingRight: 42 }}
+                  />
+                  <button
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#888780", padding: 0, display: "flex", alignItems: "center" }}
+                  >
+                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </div>
+
+                {/* Strength bar */}
+                {showStrength && password && strength && (
+                  <div style={{ marginTop: 8 }}>
+                    {/* Bar */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <div style={{ flex: 1, height: 4, background: "#E5E7EB", borderRadius: 99, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: strength.width, background: strength.color, borderRadius: 99, transition: "width 0.3s, background 0.3s" }} />
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: strength.color, minWidth: 40 }}>{strength.label}</span>
+                    </div>
+
+                    {/* Checklist */}
+                    <div style={{ background: "#F9FAFB", borderRadius: 8, padding: "10px 12px", border: "1px solid #E5E7EB" }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Password requirements</div>
+                      {[
+                        { key: "length", label: "At least 8 characters" },
+                        { key: "uppercase", label: "One uppercase letter (A-Z)" },
+                        { key: "lowercase", label: "One lowercase letter (a-z)" },
+                        { key: "number", label: "One number (0-9)" },
+                        { key: "special", label: "One special character (!@#$...)" },
+                      ].map(({ key, label }) => (
+                        <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                          <CheckIcon passed={strength.checks[key]} />
+                          <span style={{ fontSize: 11, color: strength.checks[key] ? "#16A34A" : "#888780" }}>{label}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Suggestion if weak */}
+                    {strength.level === "weak" && (
+                      <div style={{ marginTop: 6, background: "#FEF3C7", borderRadius: 8, padding: "8px 10px", border: "1px solid #FDE68A" }}>
+                        <div style={{ fontSize: 11, color: "#92400E", fontWeight: 600 }}>💡 Suggestion</div>
+                        <div style={{ fontSize: 11, color: "#92400E", marginTop: 2 }}>
+                          Try something like: <strong>Fix@2024Next!</strong>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Role */}
               <div style={{ marginBottom: "1.25rem" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>I am a</div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -179,8 +304,8 @@ export default function SignupPage() {
 
               <button
                 onClick={handleSendOTP}
-                disabled={loading}
-                style={{ width: "100%", background: loading ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit" }}
+                disabled={loading || !!emailError || !isValidEmail(identifier)}
+                style={{ width: "100%", background: loading || !!emailError || !isValidEmail(identifier) ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 700, cursor: loading || !!emailError || !isValidEmail(identifier) ? "not-allowed" : "pointer", fontFamily: "inherit" }}
               >
                 {loading ? "Sending OTP..." : "Continue"}
               </button>
@@ -201,7 +326,10 @@ export default function SignupPage() {
 
               <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
                 <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
-                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" strokeWidth="2" strokeLinecap="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" strokeWidth="2" strokeLinecap="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                    <polyline points="22,6 12,13 2,6" />
+                  </svg>
                 </div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#2C2C2A", marginBottom: 6 }}>Check your email</div>
                 <div style={{ fontSize: 13, color: "#888780", lineHeight: 1.5 }}>
@@ -210,7 +338,6 @@ export default function SignupPage() {
                 </div>
               </div>
 
-              {/* OTP inputs */}
               <input
                 placeholder="Enter 6-digit OTP"
                 value={otp}
@@ -222,7 +349,7 @@ export default function SignupPage() {
               <button
                 onClick={handleVerifyAndSignup}
                 disabled={loading || otp.length !== 6}
-                style={{ width: "100%", background: otp.length !== 6 ? "#B4B2A9" : loading ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 700, cursor: otp.length !== 6 || loading ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 12 }}
+                style={{ width: "100%", background: otp.length !== 6 || loading ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 700, cursor: otp.length !== 6 || loading ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 12 }}
               >
                 {loading ? "Creating account..." : "Verify & Create Account"}
               </button>
