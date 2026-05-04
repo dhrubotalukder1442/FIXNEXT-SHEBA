@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { services } from "../data/services";
 
@@ -33,9 +33,15 @@ const UserIcon = () => (
     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
   </svg>
 );
+const ChatIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+  </svg>
+);
 
 export default function Home() {
   const router = useRouter();
+  const fileInputRef = useRef(null);
   const [activeService, setActiveService] = useState(null);
   const [selectedOption, setSelectedOption] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -55,19 +61,26 @@ export default function Home() {
   const [reviewed, setReviewed] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [showReviewPopup, setShowReviewPopup] = useState(false);
+  const [servicemanInfo, setServicemanInfo] = useState(null);
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [userAvatar, setUserAvatar] = useState(null);
+  // Messages state
+  const [allMessages, setAllMessages] = useState([]); // [{bookingId, messages, servicemanName}]
+  const [messagesLoading, setMessagesLoading] = useState(false);
 
   useEffect(() => {
-  fetch("/api/auth/me")
-    .then(r => r.json())
-    .then(data => {
-      if (data.success) {
-        setUser(data.user);
-        localStorage.setItem("user", JSON.stringify(data.user));
-      }
-    });
-}, []);
+    fetch("/api/auth/me")
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          setUser(data.user);
+          localStorage.setItem("user", JSON.stringify(data.user));
+          // fetch avatar from users collection if exists
+          if (data.user.avatar) setUserAvatar(data.user.avatar);
+        }
+      });
+  }, []);
 
-  // Polling — serviceman accept করলে profile button দেখাবে
   useEffect(() => {
     if (!confirmed || !confirmedBooking) return;
     const interval = setInterval(async () => {
@@ -88,6 +101,9 @@ export default function Home() {
             createdAt: new Date().toISOString(),
             read: false,
           }, ...prev]);
+          fetch(`/api/serviceman/${updated.servicemanId}`)
+            .then(r => r.json())
+            .then(d => { if (d.success) setServicemanInfo(d.data); });
           clearInterval(interval);
         }
       }
@@ -95,24 +111,23 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [confirmed]);
 
-  // Polling — completed হলে review popup দেখাবে
-useEffect(() => {
-  if (!confirmedBooking?.servicemanId || reviewed) return;
-  const interval = setInterval(async () => {
-    const res = await fetch("/api/booking");
-    const data = await res.json();
-    if (data.success) {
-      const updated = data.data.find(b =>
-        b._id?.toString() === confirmedBooking._id?.toString()
-      );
-      if (updated?.status === "completed") {
-        setShowReviewPopup(true);
-        clearInterval(interval);
+  useEffect(() => {
+    if (!confirmedBooking?.servicemanId || reviewed) return;
+    const interval = setInterval(async () => {
+      const res = await fetch("/api/booking");
+      const data = await res.json();
+      if (data.success) {
+        const updated = data.data.find(b =>
+          b._id?.toString() === confirmedBooking._id?.toString()
+        );
+        if (updated?.status === "completed") {
+          setShowReviewPopup(true);
+          clearInterval(interval);
+        }
       }
-    }
-  }, 3000);
-  return () => clearInterval(interval);
-}, [confirmedBooking?.servicemanId]);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [confirmedBooking?.servicemanId]);
 
   const fetchBookingHistory = async (userId) => {
     const res = await fetch("/api/booking");
@@ -120,10 +135,75 @@ useEffect(() => {
     if (data.success) setBookingHistory(data.data.filter(b => b.userId === userId));
   };
 
-  const handleOpenSidebar = () => {
+  // Messages tab: fetch all messages for user's bookings
+  const fetchAllMessages = async (userId) => {
+    setMessagesLoading(true);
+    try {
+      const res = await fetch("/api/booking");
+      const data = await res.json();
+      if (!data.success) return;
+      const userBookings = data.data.filter(b => b.userId === userId && b.servicemanId);
+
+      const messageGroups = await Promise.all(
+        userBookings.map(async (booking) => {
+          const msgRes = await fetch(`/api/chat?bookingId=${booking._id}`);
+          const msgData = await msgRes.json();
+          // fetch serviceman name
+          let servicemanName = "Serviceman";
+          if (booking.servicemanId) {
+            try {
+              const smRes = await fetch(`/api/serviceman/${booking.servicemanId}`);
+              const smData = await smRes.json();
+              if (smData.success) servicemanName = smData.data.name;
+            } catch {}
+          }
+          return {
+            bookingId: booking._id,
+            service: booking.service,
+            servicemanName,
+            messages: msgData.success ? msgData.data : [],
+            lastMessage: msgData.success && msgData.data.length > 0
+              ? msgData.data[msgData.data.length - 1]
+              : null,
+          };
+        })
+      );
+      // only show bookings that have messages
+      setAllMessages(messageGroups.filter(g => g.messages.length > 0));
+    } catch (err) { console.error(err); }
+    finally { setMessagesLoading(false); }
+  };
+
+  const handleOpenSidebar = (tab = "profile") => {
     if (!user) { router.push("/login"); return; }
+    setSidebarTab(tab);
     fetchBookingHistory(user.id);
+    if (tab === "messages") fetchAllMessages(user.id);
     setShowSidebar(true);
+  };
+
+  // Avatar upload
+  const handleAvatarChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { alert("Image must be under 2MB"); return; }
+    setAvatarLoading(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result;
+      try {
+        const res = await fetch("/api/user/profile", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ avatar: base64 }),
+        });
+        const data = await res.json();
+        if (data.success) setUserAvatar(base64);
+        else alert("Failed to upload image");
+      } catch { alert("Something went wrong."); }
+      finally { setAvatarLoading(false); }
+    };
+    reader.readAsDataURL(file);
   };
 
   const service = activeService ? services[activeService] : null;
@@ -205,6 +285,7 @@ useEffect(() => {
     setSelectedOption(null);
     setConfirmed(false);
     setConfirmedBooking(null);
+    setServicemanInfo(null);
     setName("");
     setPhone("");
     setAddress("");
@@ -215,11 +296,16 @@ useEffect(() => {
   };
 
   const handleLogout = async () => {
-  await fetch("/api/auth/logout", { method: "POST" });
-  localStorage.removeItem("user");
-  setUser(null);
-  setShowSidebar(false);
-};
+    await fetch("/api/auth/logout", { method: "POST" });
+    localStorage.removeItem("user");
+    setUser(null);
+    setUserAvatar(null);
+    setShowSidebar(false);
+  };
+
+  const handleCall = (phoneNumber) => {
+    window.location.href = `tel:${phoneNumber}`;
+  };
 
   const unreadCount = userNotifications.filter(n => !n.read).length;
 
@@ -232,74 +318,46 @@ useEffect(() => {
 
   const statusColor = { pending: "#F59E0B", accepted: "#3B82F6", completed: "#22C55E" };
 
+  const formatTime = (date) => new Date(date).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const formatDate = (date) => new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+
+  const tabs = [
+    { key: "profile", label: "Profile" },
+    { key: "history", label: "History" },
+    { key: "notifications", label: unreadCount > 0 ? `Notif (${unreadCount})` : "Notif" },
+    { key: "messages", label: "Messages" },
+  ];
+
   return (
     <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", paddingBottom: "2rem" }}>
 
       {/* ── Review Popup ── */}
       {showReviewPopup && !reviewed && (
         <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(10,37,64,0.65)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem", backdropFilter: "blur(6px)" }}>
-          <div style={{ background: "#fff", borderRadius: 24, width: "100%", maxWidth: 360, padding: "1.75rem", position: "relative", boxShadow: "0 32px 80px rgba(10,37,64,0.4), 0 8px 24px rgba(10,37,64,0.2), 0 2px 8px rgba(0,0,0,0.1)", border: "1px solid rgba(255,255,255,0.6)" }}>
-
-            {/* Close */}
-            <button
-              onClick={() => setShowReviewPopup(false)}
-              style={{ position: "absolute", top: 14, right: 14, width: 30, height: 30, borderRadius: "50%", background: "#F0F2F5", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#888780", boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }}
-            >
+          <div style={{ background: "#fff", borderRadius: 24, width: "100%", maxWidth: 360, padding: "1.75rem", position: "relative", boxShadow: "0 32px 80px rgba(10,37,64,0.4)", border: "1px solid rgba(255,255,255,0.6)" }}>
+            <button onClick={() => setShowReviewPopup(false)} style={{ position: "absolute", top: 14, right: 14, width: 30, height: 30, borderRadius: "50%", background: "#F0F2F5", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#888780" }}>
               <CloseIcon />
             </button>
-
-            {/* Header */}
             <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
               <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px", boxShadow: "0 8px 24px rgba(29,158,117,0.45)" }}>
-                <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
-                  <path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "#2C2C2A", marginBottom: 6 }}>Job Completed!</div>
               <div style={{ fontSize: 13, color: "#888780", lineHeight: 1.6 }}>How was your experience?<br />Your feedback helps others.</div>
             </div>
-
-            {/* Stars */}
             <div style={{ display: "flex", justifyContent: "center", gap: 10, marginBottom: 8 }}>
               {[1, 2, 3, 4, 5].map((star) => (
-                <div
-                  key={star}
-                  onClick={() => setRating(star)}
-                  style={{ cursor: "pointer", fontSize: 34, transition: "transform 0.15s", transform: star <= rating ? "scale(1.15)" : "scale(1)", filter: star <= rating ? "drop-shadow(0 3px 6px rgba(245,158,11,0.5))" : "grayscale(1) opacity(0.4)" }}
-                >
-                  ⭐
-                </div>
+                <div key={star} onClick={() => setRating(star)} style={{ cursor: "pointer", fontSize: 34, transition: "transform 0.15s", transform: star <= rating ? "scale(1.15)" : "scale(1)", filter: star <= rating ? "drop-shadow(0 3px 6px rgba(245,158,11,0.5))" : "grayscale(1) opacity(0.4)" }}>⭐</div>
               ))}
             </div>
-
-            {/* Rating label */}
             <div style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "#1D9E75", marginBottom: "1rem", minHeight: 18 }}>
               {rating > 0 ? ["", "Poor", "Fair", "Good", "Very Good", "Excellent!"][rating] : ""}
             </div>
-
-            {/* Comment */}
-            <textarea
-              placeholder="Share your experience (optional)"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E7EB", borderRadius: 12, fontSize: 13, fontFamily: "'Sora', sans-serif", color: "#2C2C2A", background: "#FAFAFA", outline: "none", boxSizing: "border-box", resize: "none", height: 80, marginBottom: "1.25rem" }}
-            />
-
-            {/* Submit */}
-            <button
-              onClick={handleSubmitReview}
-              disabled={reviewLoading || rating === 0}
-              style={{ width: "100%", background: rating === 0 ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 14, padding: "14px", fontSize: 14, fontWeight: 700, cursor: rating === 0 ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 10, boxShadow: rating > 0 ? "0 6px 20px rgba(29,158,117,0.4)" : "none" }}
-            >
+            <textarea placeholder="Share your experience (optional)" value={comment} onChange={(e) => setComment(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E7EB", borderRadius: 12, fontSize: 13, fontFamily: "'Sora', sans-serif", color: "#2C2C2A", background: "#FAFAFA", outline: "none", boxSizing: "border-box", resize: "none", height: 80, marginBottom: "1.25rem" }} />
+            <button onClick={handleSubmitReview} disabled={reviewLoading || rating === 0} style={{ width: "100%", background: rating === 0 ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 14, padding: "14px", fontSize: 14, fontWeight: 700, cursor: rating === 0 ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 10, boxShadow: rating > 0 ? "0 6px 20px rgba(29,158,117,0.4)" : "none" }}>
               {reviewLoading ? "Submitting..." : "Submit Review"}
             </button>
-
-            <button
-              onClick={() => setShowReviewPopup(false)}
-              style={{ width: "100%", background: "transparent", border: "none", color: "#B4B2A9", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 4 }}
-            >
-              Skip for now
-            </button>
+            <button onClick={() => setShowReviewPopup(false)} style={{ width: "100%", background: "transparent", border: "none", color: "#B4B2A9", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 4 }}>Skip for now</button>
           </div>
         </div>
       )}
@@ -308,23 +366,63 @@ useEffect(() => {
       {showSidebar && (
         <div onClick={() => setShowSidebar(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(10,37,64,0.5)" }}>
           <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 300, background: "#fff", display: "flex", flexDirection: "column" }}>
+
+            {/* Sidebar Header */}
             <div style={{ background: "#0A2540", padding: "1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>My Account</div>
               <button onClick={() => setShowSidebar(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9AAFC7" }}><CloseIcon /></button>
             </div>
-            <div style={{ display: "flex", borderBottom: "1px solid #E5E7EB" }}>
-              {[{ key: "profile", label: "Profile" }, { key: "history", label: "History" }, { key: "notifications", label: `Notif${unreadCount > 0 ? ` (${unreadCount})` : ""}` }].map(t => (
-                <button key={t.key} onClick={() => setSidebarTab(t.key)} style={{ flex: 1, padding: "10px 4px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: sidebarTab === t.key ? "#F0FBF6" : "#fff", color: sidebarTab === t.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === t.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
+
+            {/* 4 Tabs */}
+            <div style={{ display: "flex", borderBottom: "1px solid #E5E7EB", overflowX: "auto" }}>
+              {tabs.map(t => (
+                <button key={t.key} onClick={() => {
+                  setSidebarTab(t.key);
+                  if (t.key === "messages") fetchAllMessages(user.id);
+                }} style={{ flex: 1, padding: "10px 4px", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", background: sidebarTab === t.key ? "#F0FBF6" : "#fff", color: sidebarTab === t.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === t.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
                   {t.label}
                 </button>
               ))}
             </div>
+
             <div style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
+
+              {/* ── Profile Tab ── */}
               {sidebarTab === "profile" && (
                 <div>
-                  <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
-                    <span style={{ fontSize: 26, fontWeight: 700, color: "#1D9E75" }}>{user?.name?.charAt(0).toUpperCase()}</span>
+                  {/* Avatar with camera */}
+                  <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <div style={{ width: 72, height: 72, borderRadius: "50%", overflow: "hidden", border: "3px solid #1D9E75", margin: "0 auto" }}>
+                        {userAvatar ? (
+                          <img src={userAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        ) : (
+                          <div style={{ width: "100%", height: "100%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <span style={{ fontSize: 26, fontWeight: 700, color: "#1D9E75" }}>{user?.name?.charAt(0).toUpperCase()}</span>
+                          </div>
+                        )}
+                      </div>
+                      {/* Camera button */}
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={avatarLoading}
+                        style={{ position: "absolute", bottom: 0, right: 0, width: 26, height: 26, borderRadius: "50%", background: "#1D9E75", border: "2px solid #fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                      >
+                        {avatarLoading ? (
+                          <span style={{ fontSize: 8, color: "#fff" }}>...</span>
+                        ) : (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+                            <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
+                            <circle cx="12" cy="13" r="4" />
+                          </svg>
+                        )}
+                      </button>
+                      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: "none" }} />
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#2C2C2A", marginTop: 10 }}>{user?.name}</div>
+                    <div style={{ fontSize: 11, color: "#888780", marginTop: 2 }}>{user?.email}</div>
                   </div>
+
                   {[["Name", user?.name], ["Email", user?.email], ["Role", user?.role]].map(([label, val]) => (
                     <div key={label} style={{ background: "#F9FAFB", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
                       <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
@@ -333,6 +431,8 @@ useEffect(() => {
                   ))}
                 </div>
               )}
+
+              {/* ── History Tab ── */}
               {sidebarTab === "history" && (
                 <div>
                   {bookingHistory.length === 0 ? (
@@ -345,16 +445,25 @@ useEffect(() => {
                           <span style={{ fontSize: 10, fontWeight: 600, color: statusColor[b.status] || "#888780", background: "#F0F2F5", borderRadius: 6, padding: "2px 8px" }}>{b.status}</span>
                         </div>
                         <div style={{ fontSize: 11, color: "#888780" }}>{new Date(b.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</div>
-                        {b.servicemanId && (
-                          <button onClick={() => { router.push(`/serviceman/${b.servicemanId}`); setShowSidebar(false); }} style={{ marginTop: 6, fontSize: 11, color: "#1D9E75", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, fontWeight: 600 }}>
-                            View Serviceman →
-                          </button>
-                        )}
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          {b.servicemanId && (
+                            <button onClick={() => { router.push(`/serviceman/${b.servicemanId}`); setShowSidebar(false); }} style={{ flex: 1, fontSize: 11, color: "#1D9E75", background: "#F0FBF6", border: "1px solid #9FE1CB", borderRadius: 7, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                              View Profile
+                            </button>
+                          )}
+                          {b.servicemanId && (
+                            <button onClick={() => { router.push(`/chat/${b._id}`); setShowSidebar(false); }} style={{ flex: 1, fontSize: 11, color: "#0A2540", background: "#F0F2F5", border: "1px solid #E5E7EB", borderRadius: 7, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                              <ChatIcon /> Chat
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
                 </div>
               )}
+
+              {/* ── Notifications Tab ── */}
               {sidebarTab === "notifications" && (
                 <div>
                   {userNotifications.length === 0 ? (
@@ -375,7 +484,58 @@ useEffect(() => {
                   )}
                 </div>
               )}
+
+              {/* ── Messages Tab ── */}
+              {sidebarTab === "messages" && (
+                <div>
+                  {messagesLoading ? (
+                    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>Loading messages...</div>
+                  ) : allMessages.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
+                      No messages yet
+                    </div>
+                  ) : (
+                    allMessages.map((group, i) => {
+                      const last = group.lastMessage;
+                      const isFromServiceman = last?.senderRole === "serviceman";
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => { router.push(`/chat/${group.bookingId}`); setShowSidebar(false); }}
+                          style={{ background: "#F9FAFB", borderRadius: 12, padding: "12px 14px", marginBottom: 8, border: "1px solid #E5E7EB", cursor: "pointer" }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            {/* Avatar */}
+                            <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              <span style={{ fontSize: 16, fontWeight: 700, color: "#1D9E75" }}>{group.servicemanName?.charAt(0).toUpperCase()}</span>
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: "#2C2C2A" }}>{group.servicemanName}</div>
+                                {last && <div style={{ fontSize: 10, color: "#B4B2A9" }}>{formatDate(last.createdAt)}</div>}
+                              </div>
+                              <div style={{ fontSize: 11, color: "#1D9E75", marginBottom: 2 }}>{group.service}</div>
+                              {last && (
+                                <div style={{ fontSize: 12, color: isFromServiceman ? "#2C2C2A" : "#888780", fontWeight: isFromServiceman ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                  {isFromServiceman ? "" : "You: "}{last.message}
+                                </div>
+                              )}
+                            </div>
+                            {/* Unread dot for serviceman messages */}
+                            {isFromServiceman && (
+                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
+
+            {/* Logout */}
             <div style={{ padding: "1rem", borderTop: "1px solid #E5E7EB" }}>
               <button onClick={handleLogout} style={{ width: "100%", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                 Logout
@@ -438,12 +598,20 @@ useEffect(() => {
           </div>
           {user ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <button onClick={() => { handleOpenSidebar(); setSidebarTab("notifications"); }} style={{ position: "relative", background: "transparent", border: "none", cursor: "pointer", color: "#9AAFC7", padding: 4 }}>
+              {/* Bell */}
+              <button onClick={() => handleOpenSidebar("notifications")} style={{ position: "relative", background: "transparent", border: "none", cursor: "pointer", color: "#9AAFC7", padding: 4 }}>
                 <BellIcon />
                 {unreadCount > 0 && <span style={{ position: "absolute", top: 0, right: 0, width: 8, height: 8, background: "#DC2626", borderRadius: "50%" }} />}
               </button>
-              <button onClick={handleOpenSidebar} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "5px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
-                <UserIcon />
+              {/* Profile button with avatar */}
+              <button onClick={() => handleOpenSidebar("profile")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "5px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+                <div style={{ width: 22, height: 22, borderRadius: "50%", overflow: "hidden", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {userAvatar ? (
+                    <img src={userAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  ) : (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>{user?.name?.charAt(0).toUpperCase()}</span>
+                  )}
+                </div>
                 {user.name}
               </button>
             </div>
@@ -543,13 +711,63 @@ useEffect(() => {
                 ))}
               </div>
 
-              {confirmedBooking?.servicemanId ? (
-                <button onClick={() => router.push(`/serviceman/${confirmedBooking.servicemanId}`)} style={{ width: "100%", background: "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginBottom: 8 }}>
-                  View Serviceman Profile →
-                </button>
+              {/* Serviceman card */}
+              {confirmedBooking?.servicemanId && servicemanInfo ? (
+                <div style={{ background: "#F0FBF6", borderRadius: 12, border: "1px solid #9FE1CB", padding: "14px", marginBottom: 8, textAlign: "left" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#0F6E56", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Your Serviceman</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: "50%", overflow: "hidden", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {servicemanInfo.avatar ? (
+                        <img src={servicemanInfo.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <span style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{servicemanInfo.name?.charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#2C2C2A" }}>{servicemanInfo.name}</div>
+                      <div style={{ fontSize: 12, color: "#1D9E75" }}>{servicemanInfo.specialty || "Serviceman"}</div>
+                      {servicemanInfo.rating > 0 && (
+                        <div style={{ fontSize: 11, color: "#888780" }}>⭐ {servicemanInfo.rating.toFixed(1)}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {servicemanInfo.phone ? (
+                      <button onClick={() => handleCall(servicemanInfo.phone)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#1D9E75", color: "#fff", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", width: "100%", fontFamily: "inherit" }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+                          <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.68A2 2 0 012 .82h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" />
+                        </svg>
+                        Call {servicemanInfo.name}
+                      </button>
+                    ) : (
+                      <div style={{ fontSize: 12, color: "#888780", textAlign: "center", padding: "8px" }}>Phone number not available</div>
+                    )}
+                    {/* Chat button */}
+                    <button onClick={() => router.push(`/chat/${confirmedBooking._id}`)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#0A2540", color: "#fff", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", width: "100%", fontFamily: "inherit" }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+                        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                      </svg>
+                      Chat with Serviceman
+                    </button>
+                  </div>
+                </div>
+              ) : confirmedBooking?.servicemanId ? (
+                <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <button onClick={() => router.push(`/serviceman/${confirmedBooking.servicemanId}`)} style={{ width: "100%", background: "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                    View Serviceman Profile →
+                  </button>
+                  <button onClick={() => router.push(`/chat/${confirmedBooking._id}`)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#F0FBF6", color: "#1D9E75", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, border: "1px solid #9FE1CB", cursor: "pointer", width: "100%", fontFamily: "inherit" }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" strokeWidth="2.5" strokeLinecap="round">
+                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                    </svg>
+                    Chat with Serviceman
+                  </button>
+                </div>
               ) : (
-                <div style={{ fontSize: 12, color: "#888780", textAlign: "center", marginBottom: 8, padding: "8px", background: "#F9FAFB", borderRadius: 8 }}>
-                  Waiting for serviceman to accept...
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: "#888780", textAlign: "center", padding: "8px", background: "#F9FAFB", borderRadius: 8 }}>
+                    ⏳ Waiting for serviceman to accept...
+                  </div>
                 </div>
               )}
 

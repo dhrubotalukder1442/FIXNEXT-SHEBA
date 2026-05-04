@@ -24,10 +24,13 @@ export default function ServicemanProfile() {
   const [serviceman, setServiceman] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeBooking, setActiveBooking] = useState(null); // booking with this serviceman
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
     if (!id) return;
 
+    // fetch serviceman info
     fetch(`/api/serviceman/${id}`)
       .then((r) => r.json())
       .then((data) => {
@@ -35,10 +38,32 @@ export default function ServicemanProfile() {
       })
       .finally(() => setLoading(false));
 
+    // fetch reviews
     fetch(`/api/reviews?servicemanId=${id}`)
       .then((r) => r.json())
       .then((data) => {
         if (data.success) setReviews(data.data);
+      });
+
+    // fetch current user and their bookings with this serviceman
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then(async (data) => {
+        if (!data.success) return;
+        setUser(data.user);
+        // fetch bookings
+        const bookingRes = await fetch("/api/booking");
+        const bookingData = await bookingRes.json();
+        if (bookingData.success) {
+          // find any accepted/pending booking between this user and this serviceman
+          const found = bookingData.data.find(
+            (b) =>
+              b.userId === data.user.id &&
+              b.servicemanId === id &&
+              (b.status === "accepted" || b.status === "pending")
+          );
+          if (found) setActiveBooking(found);
+        }
       });
   }, [id]);
 
@@ -57,6 +82,7 @@ export default function ServicemanProfile() {
   return (
     <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", paddingBottom: "2rem" }}>
 
+      {/* ── Header ── */}
       <div style={{ background: "#0A2540", padding: "1.5rem 1.25rem 2rem" }}>
         <button
           onClick={() => router.back()}
@@ -66,10 +92,14 @@ export default function ServicemanProfile() {
         </button>
 
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <span style={{ fontSize: 26, fontWeight: 700, color: "#fff" }}>
-              {serviceman.name?.charAt(0).toUpperCase()}
-            </span>
+          <div style={{ width: 64, height: 64, borderRadius: "50%", overflow: "hidden", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {serviceman.avatar ? (
+              <img src={serviceman.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            ) : (
+              <span style={{ fontSize: 26, fontWeight: 700, color: "#fff" }}>
+                {serviceman.name?.charAt(0).toUpperCase()}
+              </span>
+            )}
           </div>
           <div>
             <div style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>{serviceman.name}</div>
@@ -86,6 +116,35 @@ export default function ServicemanProfile() {
 
       <div style={{ padding: "1.25rem" }}>
 
+        {/* ── Chat & Call buttons (only if active booking exists) ── */}
+        {user && activeBooking && (
+          <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+            {/* Call button */}
+            {serviceman.phone && (
+              <button
+                onClick={() => { window.location.href = `tel:${serviceman.phone}`; }}
+                style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8a19.79 19.79 0 01-3.07-8.68A2 2 0 012 .82h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" />
+                </svg>
+                Call
+              </button>
+            )}
+            {/* Chat button */}
+            <button
+              onClick={() => router.push(`/chat/${activeBooking._id}`)}
+              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#0A2540", color: "#fff", border: "none", borderRadius: 12, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+              </svg>
+              💬 Chat
+            </button>
+          </div>
+        )}
+
+        {/* ── About ── */}
         <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #E5E7EB", padding: "14px", marginBottom: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>About</div>
           <div style={{ fontSize: 13, color: "#5F5E5A", lineHeight: 1.6 }}>{serviceman.bio || "No bio available"}</div>
@@ -97,6 +156,7 @@ export default function ServicemanProfile() {
           )}
         </div>
 
+        {/* ── Reviews ── */}
         <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
           Reviews ({reviews.length})
         </div>

@@ -32,6 +32,7 @@ export default function ServicemanPage() {
   const [user, setUser] = useState(null);
   const [filter, setFilter] = useState("all");
   const [showSidebar, setShowSidebar] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState("profile");
   const [profile, setProfile] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [editPhone, setEditPhone] = useState("");
@@ -39,6 +40,9 @@ export default function ServicemanPage() {
   const [editBio, setEditBio] = useState("");
   const [saveLoading, setSaveLoading] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
+  // Messages
+  const [allMessages, setAllMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
 
   const fetchNotifications = async (userId) => {
     try {
@@ -66,6 +70,39 @@ export default function ServicemanPage() {
       const fullData = await fullRes.json();
       if (fullData.success) setProfile(fullData.data);
     }
+  };
+
+  // Fetch all messages for serviceman's accepted bookings
+  const fetchAllMessages = async (userId) => {
+    setMessagesLoading(true);
+    try {
+      const res = await fetch(`/api/booking?servicemanId=${userId}`);
+      const data = await res.json();
+      if (!data.success) return;
+
+      const acceptedBookings = data.data.filter(b => b.servicemanId && (b.status === "accepted" || b.status === "completed"));
+
+      const groups = await Promise.all(
+        acceptedBookings.map(async (booking) => {
+          const msgRes = await fetch(`/api/chat?bookingId=${booking._id}`);
+          const msgData = await msgRes.json();
+          return {
+            bookingId: booking._id,
+            customerName: booking.name,
+            customerPhone: booking.phone,
+            service: booking.service,
+            status: booking.status,
+            messages: msgData.success ? msgData.data : [],
+            lastMessage: msgData.success && msgData.data.length > 0
+              ? msgData.data[msgData.data.length - 1]
+              : null,
+          };
+        })
+      );
+
+      setAllMessages(groups.filter(g => g.messages.length > 0));
+    } catch (err) { console.error(err); }
+    finally { setMessagesLoading(false); }
   };
 
   const updateStatus = async (id, status) => {
@@ -113,7 +150,6 @@ export default function ServicemanPage() {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) { alert("Image must be under 2MB"); return; }
-
     setAvatarLoading(true);
     const reader = new FileReader();
     reader.onload = async () => {
@@ -133,8 +169,10 @@ export default function ServicemanPage() {
     reader.readAsDataURL(file);
   };
 
-  const openSidebar = () => {
+  const openSidebar = (tab = "profile") => {
     fetchProfile();
+    setSidebarTab(tab);
+    if (tab === "messages" && user) fetchAllMessages(user.id);
     setShowSidebar(true);
   };
 
@@ -169,6 +207,13 @@ export default function ServicemanPage() {
     marginBottom: 8,
   };
 
+  const formatDate = (date) => new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+
+  const tabs = [
+    { key: "profile", label: "Profile" },
+    { key: "messages", label: "Messages" },
+  ];
+
   return (
     <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", paddingBottom: "2rem" }}>
 
@@ -185,120 +230,166 @@ export default function ServicemanPage() {
               </button>
             </div>
 
+            {/* Tabs */}
+            <div style={{ display: "flex", borderBottom: "1px solid #E5E7EB" }}>
+              {tabs.map(t => (
+                <button key={t.key} onClick={() => {
+                  setSidebarTab(t.key);
+                  if (t.key === "messages" && user) fetchAllMessages(user.id);
+                }} style={{ flex: 1, padding: "10px 4px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: sidebarTab === t.key ? "#F0FBF6" : "#fff", color: sidebarTab === t.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === t.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
             <div style={{ flex: 1, overflowY: "auto", padding: "1.25rem" }}>
 
-              {/* Avatar */}
-              <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
-                <div style={{ position: "relative", display: "inline-block" }}>
-                  <div style={{ width: 80, height: 80, borderRadius: "50%", overflow: "hidden", border: "3px solid #1D9E75", margin: "0 auto" }}>
-                    {profile?.avatar ? (
-                      <img src={profile.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    ) : (
-                      <div style={{ width: "100%", height: "100%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <span style={{ fontSize: 28, fontWeight: 700, color: "#1D9E75" }}>{user?.name?.charAt(0).toUpperCase()}</span>
+              {/* ── Profile Tab ── */}
+              {sidebarTab === "profile" && (
+                <>
+                  {/* Avatar */}
+                  <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <div style={{ width: 80, height: 80, borderRadius: "50%", overflow: "hidden", border: "3px solid #1D9E75", margin: "0 auto" }}>
+                        {profile?.avatar ? (
+                          <img src={profile.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        ) : (
+                          <div style={{ width: "100%", height: "100%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <span style={{ fontSize: 28, fontWeight: 700, color: "#1D9E75" }}>{user?.name?.charAt(0).toUpperCase()}</span>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={avatarLoading}
+                        style={{ position: "absolute", bottom: 0, right: 0, width: 26, height: 26, borderRadius: "50%", background: "#1D9E75", border: "2px solid #fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                      >
+                        {avatarLoading ? (
+                          <span style={{ fontSize: 8, color: "#fff" }}>...</span>
+                        ) : (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+                            <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
+                            <circle cx="12" cy="13" r="4" />
+                          </svg>
+                        )}
+                      </button>
+                      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: "none" }} />
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#2C2C2A", marginTop: 10 }}>{user?.name}</div>
+                    <div style={{ fontSize: 12, color: "#1D9E75", marginTop: 2 }}>{profile?.specialty || "Serviceman"}</div>
+                    {profile?.rating > 0 && (
+                      <div style={{ fontSize: 12, color: "#888780", marginTop: 4 }}>
+                        ⭐ {profile.rating.toFixed(1)} ({profile.totalReviews} reviews)
                       </div>
                     )}
                   </div>
 
-                  {/* Camera button */}
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={avatarLoading}
-                    style={{ position: "absolute", bottom: 0, right: 0, width: 26, height: 26, borderRadius: "50%", background: "#1D9E75", border: "2px solid #fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-                  >
-                    {avatarLoading ? (
-                      <span style={{ fontSize: 8, color: "#fff" }}>...</span>
-                    ) : (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
-                        <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
-                        <circle cx="12" cy="13" r="4" />
-                      </svg>
-                    )}
-                  </button>
-                  <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: "none" }} />
-                </div>
-
-                <div style={{ fontSize: 15, fontWeight: 700, color: "#2C2C2A", marginTop: 10 }}>{user?.name}</div>
-                <div style={{ fontSize: 12, color: "#1D9E75", marginTop: 2 }}>{profile?.specialty || "Serviceman"}</div>
-
-                {/* Rating */}
-                {profile?.rating > 0 && (
-                  <div style={{ fontSize: 12, color: "#888780", marginTop: 4 }}>
-                    ⭐ {profile.rating.toFixed(1)} ({profile.totalReviews} reviews)
-                  </div>
-                )}
-              </div>
-
-              {/* Profile Info */}
-              {!editMode ? (
-                <div>
-                  {[
-                    ["Email", user?.email],
-                    ["Phone", profile?.phone || "Not set"],
-                    ["Specialty", profile?.specialty || "Not set"],
-                    ["Bio", profile?.bio || "Not set"],
-                  ].map(([label, val]) => (
-                    <div key={label} style={{ background: "#F9FAFB", borderRadius: 10, padding: "10px 14px", marginBottom: 8, border: "1px solid #E5E7EB" }}>
-                      <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#2C2C2A", wordBreak: "break-word" }}>{val}</div>
+                  {/* Profile Info / Edit */}
+                  {!editMode ? (
+                    <div>
+                      {[
+                        ["Email", user?.email],
+                        ["Phone", profile?.phone || "Not set"],
+                        ["Specialty", profile?.specialty || "Not set"],
+                        ["Bio", profile?.bio || "Not set"],
+                      ].map(([label, val]) => (
+                        <div key={label} style={{ background: "#F9FAFB", borderRadius: 10, padding: "10px 14px", marginBottom: 8, border: "1px solid #E5E7EB" }}>
+                          <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#2C2C2A", wordBreak: "break-word" }}>{val}</div>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => {
+                          setEditPhone(profile?.phone || "");
+                          setEditSpecialty(profile?.specialty || "");
+                          setEditBio(profile?.bio || "");
+                          setEditMode(true);
+                        }}
+                        style={{ width: "100%", background: "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}
+                      >
+                        Edit Profile
+                      </button>
                     </div>
-                  ))}
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Edit Profile</div>
+                      <label style={{ fontSize: 11, color: "#888780", display: "block", marginBottom: 4 }}>Phone</label>
+                      <input placeholder="Phone number" value={editPhone} onChange={e => setEditPhone(e.target.value)} style={inputStyle} />
+                      <label style={{ fontSize: 11, color: "#888780", display: "block", marginBottom: 4 }}>Specialty</label>
+                      <input placeholder="e.g. Electrician, Plumber" value={editSpecialty} onChange={e => setEditSpecialty(e.target.value)} style={inputStyle} />
+                      <label style={{ fontSize: 11, color: "#888780", display: "block", marginBottom: 4 }}>Bio</label>
+                      <textarea
+                        placeholder="Tell customers about yourself"
+                        value={editBio}
+                        onChange={e => setEditBio(e.target.value)}
+                        style={{ ...inputStyle, resize: "none", height: 80 }}
+                      />
+                      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                        <button onClick={handleSaveProfile} disabled={saveLoading} style={{ flex: 1, background: saveLoading ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: saveLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+                          {saveLoading ? "Saving..." : "Save"}
+                        </button>
+                        <button onClick={() => setEditMode(false)} style={{ flex: 1, background: "transparent", color: "#888780", border: "1px solid #E5E7EB", borderRadius: 10, padding: "11px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
 
-                  <button
-                    onClick={() => {
-                      setEditPhone(profile?.phone || "");
-                      setEditSpecialty(profile?.specialty || "");
-                      setEditBio(profile?.bio || "");
-                      setEditMode(true);
-                    }}
-                    style={{ width: "100%", background: "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}
-                  >
-                    Edit Profile
-                  </button>
-                </div>
-              ) : (
+              {/* ── Messages Tab ── */}
+              {sidebarTab === "messages" && (
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Edit Profile</div>
-
-                  <label style={{ fontSize: 11, color: "#888780", display: "block", marginBottom: 4 }}>Phone</label>
-                  <input placeholder="Phone number" value={editPhone} onChange={e => setEditPhone(e.target.value)} style={inputStyle} />
-
-                  <label style={{ fontSize: 11, color: "#888780", display: "block", marginBottom: 4 }}>Specialty</label>
-                  <input placeholder="e.g. Electrician, Plumber" value={editSpecialty} onChange={e => setEditSpecialty(e.target.value)} style={inputStyle} />
-
-                  <label style={{ fontSize: 11, color: "#888780", display: "block", marginBottom: 4 }}>Bio</label>
-                  <textarea
-                    placeholder="Tell customers about yourself"
-                    value={editBio}
-                    onChange={e => setEditBio(e.target.value)}
-                    style={{ ...inputStyle, resize: "none", height: 80 }}
-                  />
-
-                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                    <button
-                      onClick={handleSaveProfile}
-                      disabled={saveLoading}
-                      style={{ flex: 1, background: saveLoading ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: saveLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}
-                    >
-                      {saveLoading ? "Saving..." : "Save"}
-                    </button>
-                    <button
-                      onClick={() => setEditMode(false)}
-                      style={{ flex: 1, background: "transparent", color: "#888780", border: "1px solid #E5E7EB", borderRadius: 10, padding: "11px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
+                  {messagesLoading ? (
+                    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>Loading messages...</div>
+                  ) : allMessages.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
+                      No messages yet
+                    </div>
+                  ) : (
+                    allMessages.map((group, i) => {
+                      const last = group.lastMessage;
+                      const isFromCustomer = last?.senderRole === "user";
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => { router.push(`/chat/${group.bookingId}`); setShowSidebar(false); }}
+                          style={{ background: "#F9FAFB", borderRadius: 12, padding: "12px 14px", marginBottom: 8, border: "1px solid #E5E7EB", cursor: "pointer" }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            {/* Customer avatar */}
+                            <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              <span style={{ fontSize: 16, fontWeight: 700, color: "#1D9E75" }}>{group.customerName?.charAt(0).toUpperCase()}</span>
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: "#2C2C2A" }}>{group.customerName}</div>
+                                {last && <div style={{ fontSize: 10, color: "#B4B2A9" }}>{formatDate(last.createdAt)}</div>}
+                              </div>
+                              <div style={{ fontSize: 11, color: "#1D9E75", marginBottom: 2 }}>{group.service}</div>
+                              {last && (
+                                <div style={{ fontSize: 12, color: isFromCustomer ? "#2C2C2A" : "#888780", fontWeight: isFromCustomer ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                  {isFromCustomer ? "" : "You: "}{last.message}
+                                </div>
+                              )}
+                            </div>
+                            {/* Unread dot for customer messages */}
+                            {isFromCustomer && (
+                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               )}
             </div>
 
             {/* Logout */}
             <div style={{ padding: "1rem", borderTop: "1px solid #E5E7EB" }}>
-              <button
-                onClick={handleLogout}
-                style={{ width: "100%", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
-              >
+              <button onClick={handleLogout} style={{ width: "100%", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                 Logout
               </button>
             </div>
@@ -313,21 +404,32 @@ export default function ServicemanPage() {
             <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Serviceman Panel</div>
             <div style={{ fontSize: 12, color: "#5DCAA5", marginTop: 2 }}>Welcome, {user?.name}</div>
           </div>
-
-          {/* Profile button */}
-          <button
-            onClick={openSidebar}
-            style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
-          >
-            <div style={{ width: 24, height: 24, borderRadius: "50%", overflow: "hidden", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              {profile?.avatar ? (
-                <img src={profile.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              ) : (
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{user?.name?.charAt(0).toUpperCase()}</span>
-              )}
-            </div>
-            Profile
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {/* Messages button */}
+            <button
+              onClick={() => openSidebar("messages")}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+              </svg>
+              Messages
+            </button>
+            {/* Profile button */}
+            <button
+              onClick={() => openSidebar("profile")}
+              style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "6px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+            >
+              <div style={{ width: 24, height: 24, borderRadius: "50%", overflow: "hidden", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {profile?.avatar ? (
+                  <img src={profile.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                ) : (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{user?.name?.charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+              Profile
+            </button>
+          </div>
         </div>
       </div>
 
@@ -416,7 +518,14 @@ export default function ServicemanPage() {
                   <button onClick={() => updateStatus(b._id, "accepted")} style={{ flex: 1, background: "#1D9E75", color: "#fff", border: "none", borderRadius: 8, padding: "10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Accept</button>
                 )}
                 {b.status === "accepted" && (
-                  <button onClick={() => updateStatus(b._id, "completed")} style={{ flex: 1, background: "#0A2540", color: "#fff", border: "none", borderRadius: 8, padding: "10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Mark Complete</button>
+                  <>
+                    <button onClick={() => router.push(`/chat/${b._id}`)} style={{ flex: 1, background: "#F0FBF6", color: "#1D9E75", border: "1px solid #1D9E75", borderRadius: 8, padding: "10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                      💬 Chat
+                    </button>
+                    <button onClick={() => updateStatus(b._id, "completed")} style={{ flex: 1, background: "#0A2540", color: "#fff", border: "none", borderRadius: 8, padding: "10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                      ✓ Complete
+                    </button>
+                  </>
                 )}
                 {b.status === "completed" && (
                   <div style={{ flex: 1, textAlign: "center", fontSize: 12, color: "#166534", fontWeight: 600, padding: "10px" }}>✓ Completed</div>
