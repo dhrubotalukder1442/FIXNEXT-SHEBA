@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
+import Pusher from "pusher-js";
 
 export default function ChatPage() {
   const router = useRouter();
@@ -10,8 +11,9 @@ export default function ChatPage() {
   const [user, setUser] = useState(null);
   const [sending, setSending] = useState(false);
   const bottomRef = useRef(null);
-  const intervalRef = useRef(null);
+  const pusherRef = useRef(null);
 
+  // Auth
   useEffect(() => {
     fetch("/api/auth/me")
       .then(r => r.json())
@@ -21,7 +23,9 @@ export default function ChatPage() {
       });
   }, []);
 
+  // Initial messages fetch
   const fetchMessages = useCallback(async () => {
+    if (!bookingId) return;
     try {
       const res = await fetch(`/api/chat?bookingId=${bookingId}`);
       const data = await res.json();
@@ -32,19 +36,43 @@ export default function ChatPage() {
   useEffect(() => {
     if (!bookingId) return;
     fetchMessages();
-    intervalRef.current = setInterval(fetchMessages, 1000);
-    return () => clearInterval(intervalRef.current);
   }, [fetchMessages]);
 
+  // Pusher real-time subscription
+  useEffect(() => {
+    if (!bookingId) return;
+
+    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
+      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER,
+    });
+
+    const channel = pusher.subscribe(`chat-${bookingId}`);
+
+    channel.bind("new-message", (data) => {
+      setMessages(prev => {
+        // duplicate check
+        const exists = prev.some(m => m._id?.toString() === data._id?.toString());
+        if (exists) return prev;
+        return [...prev, data];
+      });
+    });
+
+    pusherRef.current = pusher;
+
+    return () => {
+      channel.unbind_all();
+      pusher.unsubscribe(`chat-${bookingId}`);
+      pusher.disconnect();
+    };
+  }, [bookingId]);
+
+  // Auto scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleSend = async () => {
     if (!input.trim() || sending) return;
-    console.log("bookingId:", bookingId);
-    console.log("message:", input.trim());
-
     setSending(true);
     try {
       const res = await fetch("/api/chat", {
@@ -54,10 +82,16 @@ export default function ChatPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setMessages(prev => [...prev, data.data]);
         setInput("");
+        // Pusher এ message আসবে — manually add করতে হবে না
+        // কিন্তু sender নিজে দেখার জন্য add করি
+        setMessages(prev => {
+          const exists = prev.some(m => m._id?.toString() === data.data._id?.toString());
+          if (exists) return prev;
+          return [...prev, data.data];
+        });
       }
-    } catch { }
+    } catch (err) { console.error(err); }
     finally { setSending(false); }
   };
 
@@ -67,9 +101,6 @@ export default function ChatPage() {
       handleSend();
     }
   };
-
-
-  
 
   const formatTime = (date) => new Date(date).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
@@ -93,7 +124,14 @@ export default function ChatPage() {
         </div>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>Booking Chat</div>
-          <div style={{ fontSize: 11, color: "#5DCAA5" }}>Booking #{bookingId?.slice(-6)}</div>
+          <div style={{ fontSize: 11, color: "#5DCAA5" }}>
+            Booking #{bookingId ? bookingId.slice(-6) : "..."}
+          </div>
+        </div>
+        {/* Live indicator */}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5 }}>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#1D9E75", animation: "pulse 2s infinite" }} />
+          <span style={{ fontSize: 10, color: "#5DCAA5", fontWeight: 600 }}>LIVE</span>
         </div>
       </div>
 
@@ -161,12 +199,26 @@ export default function ChatPage() {
             flexShrink: 0,
           }}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-          </svg>
+          {sending ? (
+            <div style={{ width: 18, height: 18, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          )}
         </button>
       </div>
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }
