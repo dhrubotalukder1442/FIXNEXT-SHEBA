@@ -64,9 +64,11 @@ export default function Home() {
   const [servicemanInfo, setServicemanInfo] = useState(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [userAvatar, setUserAvatar] = useState(null);
-  // Messages state
-  const [allMessages, setAllMessages] = useState([]); // [{bookingId, messages, servicemanName}]
+  const [allMessages, setAllMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState(null); // null | "paid"
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -75,12 +77,12 @@ export default function Home() {
         if (data.success) {
           setUser(data.user);
           localStorage.setItem("user", JSON.stringify(data.user));
-          // fetch avatar from users collection if exists
           if (data.user.avatar) setUserAvatar(data.user.avatar);
         }
       });
   }, []);
 
+  // Serviceman accept করেছে কিনা check
   useEffect(() => {
     if (!confirmed || !confirmedBooking) return;
     const interval = setInterval(async () => {
@@ -111,8 +113,9 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [confirmed]);
 
+  // Service complete হয়েছে কিনা check — payment status ও check করে
   useEffect(() => {
-    if (!confirmedBooking?.servicemanId || reviewed) return;
+    if (!confirmedBooking?.servicemanId) return;
     const interval = setInterval(async () => {
       const res = await fetch("/api/booking");
       const data = await res.json();
@@ -121,7 +124,11 @@ export default function Home() {
           b._id?.toString() === confirmedBooking._id?.toString()
         );
         if (updated?.status === "completed") {
-          setShowReviewPopup(true);
+          setIsCompleted(true);
+          // payment status check
+          if (updated.paymentStatus === "paid") setPaymentStatus("paid");
+          // review popup — শুধু payment হওয়ার পরে দেখাবো
+          if (updated.paymentStatus === "paid" && !reviewed) setShowReviewPopup(true);
           clearInterval(interval);
         }
       }
@@ -135,7 +142,6 @@ export default function Home() {
     if (data.success) setBookingHistory(data.data.filter(b => b.userId === userId));
   };
 
-  // Messages tab: fetch all messages for user's bookings
   const fetchAllMessages = async (userId) => {
     setMessagesLoading(true);
     try {
@@ -143,12 +149,10 @@ export default function Home() {
       const data = await res.json();
       if (!data.success) return;
       const userBookings = data.data.filter(b => b.userId === userId && b.servicemanId);
-
       const messageGroups = await Promise.all(
         userBookings.map(async (booking) => {
           const msgRes = await fetch(`/api/chat?bookingId=${booking._id}`);
           const msgData = await msgRes.json();
-          // fetch serviceman name
           let servicemanName = "Serviceman";
           if (booking.servicemanId) {
             try {
@@ -162,13 +166,10 @@ export default function Home() {
             service: booking.service,
             servicemanName,
             messages: msgData.success ? msgData.data : [],
-            lastMessage: msgData.success && msgData.data.length > 0
-              ? msgData.data[msgData.data.length - 1]
-              : null,
+            lastMessage: msgData.success && msgData.data.length > 0 ? msgData.data[msgData.data.length - 1] : null,
           };
         })
       );
-      // only show bookings that have messages
       setAllMessages(messageGroups.filter(g => g.messages.length > 0));
     } catch (err) { console.error(err); }
     finally { setMessagesLoading(false); }
@@ -182,7 +183,6 @@ export default function Home() {
     setShowSidebar(true);
   };
 
-  // Avatar upload
   const handleAvatarChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -204,6 +204,33 @@ export default function Home() {
       finally { setAvatarLoading(false); }
     };
     reader.readAsDataURL(file);
+  };
+
+  // Payment handler
+const handlePayment = async () => {
+    if (!confirmedBooking?._id) return;
+    setPaymentLoading(true);
+    try {
+      const res = await fetch("/api/payment/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId: confirmedBooking._id }),
+      });
+      const data = await res.json();
+      
+      console.log("Payment response:", data); // 👈 এটা যোগ করুন
+      
+      if (data.success && data.url) {
+        window.location.href = data.url;
+      } else {
+        alert(data.message || "Failed to initiate payment");
+      }
+    } catch (err) {
+      console.error("Payment error:", err); // 👈 এটাও
+      alert("Something went wrong.");
+    } finally {
+      setPaymentLoading(false);
+    }
   };
 
   const service = activeService ? services[activeService] : null;
@@ -293,6 +320,8 @@ export default function Home() {
     setComment("");
     setReviewed(false);
     setShowReviewPopup(false);
+    setIsCompleted(false);
+    setPaymentStatus(null);
   };
 
   const handleLogout = async () => {
@@ -317,8 +346,6 @@ export default function Home() {
   };
 
   const statusColor = { pending: "#F59E0B", accepted: "#3B82F6", completed: "#22C55E" };
-
-  const formatTime = (date) => new Date(date).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const formatDate = (date) => new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 
   const tabs = [
@@ -334,12 +361,12 @@ export default function Home() {
       {/* ── Review Popup ── */}
       {showReviewPopup && !reviewed && (
         <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(10,37,64,0.65)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem", backdropFilter: "blur(6px)" }}>
-          <div style={{ background: "#fff", borderRadius: 24, width: "100%", maxWidth: 360, padding: "1.75rem", position: "relative", boxShadow: "0 32px 80px rgba(10,37,64,0.4)", border: "1px solid rgba(255,255,255,0.6)" }}>
+          <div style={{ background: "#fff", borderRadius: 24, width: "100%", maxWidth: 360, padding: "1.75rem", position: "relative", boxShadow: "0 32px 80px rgba(10,37,64,0.4)" }}>
             <button onClick={() => setShowReviewPopup(false)} style={{ position: "absolute", top: 14, right: 14, width: 30, height: 30, borderRadius: "50%", background: "#F0F2F5", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#888780" }}>
               <CloseIcon />
             </button>
             <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
-              <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px", boxShadow: "0 8px 24px rgba(29,158,117,0.45)" }}>
+              <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
                 <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: "#2C2C2A", marginBottom: 6 }}>Job Completed!</div>
@@ -354,7 +381,7 @@ export default function Home() {
               {rating > 0 ? ["", "Poor", "Fair", "Good", "Very Good", "Excellent!"][rating] : ""}
             </div>
             <textarea placeholder="Share your experience (optional)" value={comment} onChange={(e) => setComment(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E7EB", borderRadius: 12, fontSize: 13, fontFamily: "'Sora', sans-serif", color: "#2C2C2A", background: "#FAFAFA", outline: "none", boxSizing: "border-box", resize: "none", height: 80, marginBottom: "1.25rem" }} />
-            <button onClick={handleSubmitReview} disabled={reviewLoading || rating === 0} style={{ width: "100%", background: rating === 0 ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 14, padding: "14px", fontSize: 14, fontWeight: 700, cursor: rating === 0 ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 10, boxShadow: rating > 0 ? "0 6px 20px rgba(29,158,117,0.4)" : "none" }}>
+            <button onClick={handleSubmitReview} disabled={reviewLoading || rating === 0} style={{ width: "100%", background: rating === 0 ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 14, padding: "14px", fontSize: 14, fontWeight: 700, cursor: rating === 0 ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 10 }}>
               {reviewLoading ? "Submitting..." : "Submit Review"}
             </button>
             <button onClick={() => setShowReviewPopup(false)} style={{ width: "100%", background: "transparent", border: "none", color: "#B4B2A9", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 4 }}>Skip for now</button>
@@ -366,54 +393,33 @@ export default function Home() {
       {showSidebar && (
         <div onClick={() => setShowSidebar(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(10,37,64,0.5)" }}>
           <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 300, background: "#fff", display: "flex", flexDirection: "column" }}>
-
-            {/* Sidebar Header */}
             <div style={{ background: "#0A2540", padding: "1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>My Account</div>
               <button onClick={() => setShowSidebar(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9AAFC7" }}><CloseIcon /></button>
             </div>
-
-            {/* 4 Tabs */}
             <div style={{ display: "flex", borderBottom: "1px solid #E5E7EB", overflowX: "auto" }}>
               {tabs.map(t => (
-                <button key={t.key} onClick={() => {
-                  setSidebarTab(t.key);
-                  if (t.key === "messages") fetchAllMessages(user.id);
-                }} style={{ flex: 1, padding: "10px 4px", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", background: sidebarTab === t.key ? "#F0FBF6" : "#fff", color: sidebarTab === t.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === t.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
+                <button key={t.key} onClick={() => { setSidebarTab(t.key); if (t.key === "messages") fetchAllMessages(user.id); }} style={{ flex: 1, padding: "10px 4px", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", background: sidebarTab === t.key ? "#F0FBF6" : "#fff", color: sidebarTab === t.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === t.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
                   {t.label}
                 </button>
               ))}
             </div>
-
             <div style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
-
-              {/* ── Profile Tab ── */}
               {sidebarTab === "profile" && (
                 <div>
-                  {/* Avatar with camera */}
                   <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
                     <div style={{ position: "relative", display: "inline-block" }}>
                       <div style={{ width: 72, height: 72, borderRadius: "50%", overflow: "hidden", border: "3px solid #1D9E75", margin: "0 auto" }}>
-                        {userAvatar ? (
-                          <img src={userAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                        ) : (
+                        {userAvatar ? <img src={userAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (
                           <div style={{ width: "100%", height: "100%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center" }}>
                             <span style={{ fontSize: 26, fontWeight: 700, color: "#1D9E75" }}>{user?.name?.charAt(0).toUpperCase()}</span>
                           </div>
                         )}
                       </div>
-                      {/* Camera button */}
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={avatarLoading}
-                        style={{ position: "absolute", bottom: 0, right: 0, width: 26, height: 26, borderRadius: "50%", background: "#1D9E75", border: "2px solid #fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-                      >
-                        {avatarLoading ? (
-                          <span style={{ fontSize: 8, color: "#fff" }}>...</span>
-                        ) : (
+                      <button onClick={() => fileInputRef.current?.click()} disabled={avatarLoading} style={{ position: "absolute", bottom: 0, right: 0, width: 26, height: 26, borderRadius: "50%", background: "#1D9E75", border: "2px solid #fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {avatarLoading ? <span style={{ fontSize: 8, color: "#fff" }}>...</span> : (
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
-                            <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
-                            <circle cx="12" cy="13" r="4" />
+                            <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" /><circle cx="12" cy="13" r="4" />
                           </svg>
                         )}
                       </button>
@@ -422,7 +428,6 @@ export default function Home() {
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#2C2C2A", marginTop: 10 }}>{user?.name}</div>
                     <div style={{ fontSize: 11, color: "#888780", marginTop: 2 }}>{user?.email}</div>
                   </div>
-
                   {[["Name", user?.name], ["Email", user?.email], ["Role", user?.role]].map(([label, val]) => (
                     <div key={label} style={{ background: "#F9FAFB", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
                       <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
@@ -431,8 +436,6 @@ export default function Home() {
                   ))}
                 </div>
               )}
-
-              {/* ── History Tab ── */}
               {sidebarTab === "history" && (
                 <div>
                   {bookingHistory.length === 0 ? (
@@ -445,6 +448,10 @@ export default function Home() {
                           <span style={{ fontSize: 10, fontWeight: 600, color: statusColor[b.status] || "#888780", background: "#F0F2F5", borderRadius: 6, padding: "2px 8px" }}>{b.status}</span>
                         </div>
                         <div style={{ fontSize: 11, color: "#888780" }}>{new Date(b.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</div>
+                        {/* Payment badge in history */}
+                        {b.paymentStatus === "paid" && (
+                          <div style={{ fontSize: 10, color: "#16A34A", fontWeight: 600, marginTop: 4 }}>✓ Paid</div>
+                        )}
                         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                           {b.servicemanId && (
                             <button onClick={() => { router.push(`/serviceman/${b.servicemanId}`); setShowSidebar(false); }} style={{ flex: 1, fontSize: 11, color: "#1D9E75", background: "#F0FBF6", border: "1px solid #9FE1CB", borderRadius: 7, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
@@ -462,8 +469,6 @@ export default function Home() {
                   )}
                 </div>
               )}
-
-              {/* ── Notifications Tab ── */}
               {sidebarTab === "notifications" && (
                 <div>
                   {userNotifications.length === 0 ? (
@@ -484,8 +489,6 @@ export default function Home() {
                   )}
                 </div>
               )}
-
-              {/* ── Messages Tab ── */}
               {sidebarTab === "messages" && (
                 <div>
                   {messagesLoading ? (
@@ -500,13 +503,8 @@ export default function Home() {
                       const last = group.lastMessage;
                       const isFromServiceman = last?.senderRole === "serviceman";
                       return (
-                        <div
-                          key={i}
-                          onClick={() => { router.push(`/chat/${group.bookingId}`); setShowSidebar(false); }}
-                          style={{ background: "#F9FAFB", borderRadius: 12, padding: "12px 14px", marginBottom: 8, border: "1px solid #E5E7EB", cursor: "pointer" }}
-                        >
+                        <div key={i} onClick={() => { router.push(`/chat/${group.bookingId}`); setShowSidebar(false); }} style={{ background: "#F9FAFB", borderRadius: 12, padding: "12px 14px", marginBottom: 8, border: "1px solid #E5E7EB", cursor: "pointer" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            {/* Avatar */}
                             <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                               <span style={{ fontSize: 16, fontWeight: 700, color: "#1D9E75" }}>{group.servicemanName?.charAt(0).toUpperCase()}</span>
                             </div>
@@ -522,10 +520,7 @@ export default function Home() {
                                 </div>
                               )}
                             </div>
-                            {/* Unread dot for serviceman messages */}
-                            {isFromServiceman && (
-                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />
-                            )}
+                            {isFromServiceman && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />}
                           </div>
                         </div>
                       );
@@ -534,12 +529,8 @@ export default function Home() {
                 </div>
               )}
             </div>
-
-            {/* Logout */}
             <div style={{ padding: "1rem", borderTop: "1px solid #E5E7EB" }}>
-              <button onClick={handleLogout} style={{ width: "100%", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                Logout
-              </button>
+              <button onClick={handleLogout} style={{ width: "100%", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Logout</button>
             </div>
           </div>
         </div>
@@ -573,9 +564,7 @@ export default function Home() {
             <button onClick={handleConfirmBooking} disabled={loading} style={{ width: "100%", background: loading ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 8 }}>
               {loading ? "Booking..." : "Yes, Confirm Booking"}
             </button>
-            <button onClick={() => setShowModal(false)} style={{ width: "100%", background: "transparent", border: "1px solid #E5E7EB", borderRadius: 12, padding: "11px", fontSize: 13, color: "#5F5E5A", cursor: "pointer", fontFamily: "inherit" }}>
-              Go back & edit
-            </button>
+            <button onClick={() => setShowModal(false)} style={{ width: "100%", background: "transparent", border: "1px solid #E5E7EB", borderRadius: 12, padding: "11px", fontSize: 13, color: "#5F5E5A", cursor: "pointer", fontFamily: "inherit" }}>Go back & edit</button>
           </div>
         </div>
       )}
@@ -598,27 +587,19 @@ export default function Home() {
           </div>
           {user ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {/* Bell */}
               <button onClick={() => handleOpenSidebar("notifications")} style={{ position: "relative", background: "transparent", border: "none", cursor: "pointer", color: "#9AAFC7", padding: 4 }}>
                 <BellIcon />
                 {unreadCount > 0 && <span style={{ position: "absolute", top: 0, right: 0, width: 8, height: 8, background: "#DC2626", borderRadius: "50%" }} />}
               </button>
-              {/* Profile button with avatar */}
               <button onClick={() => handleOpenSidebar("profile")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "5px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
                 <div style={{ width: 22, height: 22, borderRadius: "50%", overflow: "hidden", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  {userAvatar ? (
-                    <img src={userAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  ) : (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>{user?.name?.charAt(0).toUpperCase()}</span>
-                  )}
+                  {userAvatar ? <img src={userAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>{user?.name?.charAt(0).toUpperCase()}</span>}
                 </div>
                 {user.name}
               </button>
             </div>
           ) : (
-            <button onClick={() => router.push("/login")} style={{ background: "#1D9E75", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-              Login
-            </button>
+            <button onClick={() => router.push("/login")} style={{ background: "#1D9E75", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Login</button>
           )}
         </div>
         <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Trusted Home Services</div>
@@ -626,8 +607,7 @@ export default function Home() {
         <div style={{ display: "flex", gap: 14, marginTop: "1rem" }}>
           {["Verified Pros", "Fixed Prices", "Guaranteed"].map((t) => (
             <div key={t} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#7BAEC8" }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />
-              {t}
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />{t}
             </div>
           ))}
         </div>
@@ -682,8 +662,7 @@ export default function Home() {
                 <input placeholder="Address" value={address} onChange={(e) => setAddress(e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
               </div>
               <button onClick={handleOpenModal} disabled={selectedOption === null} style={{ width: "100%", background: selectedOption === null ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 700, cursor: selectedOption === null ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 4, fontFamily: "inherit" }}>
-                <CalendarIcon />
-                Book Now
+                <CalendarIcon />Book Now
               </button>
             </>
           ) : (
@@ -711,24 +690,50 @@ export default function Home() {
                 ))}
               </div>
 
+              {/* ── Payment Section (service complete হলে দেখাবে) ── */}
+              {isCompleted && (
+                <div style={{ marginBottom: 12 }}>
+                  {paymentStatus === "paid" ? (
+                    <div style={{ background: "#DCFCE7", borderRadius: 12, padding: "14px", border: "1px solid #86EFAC", textAlign: "center" }}>
+                      <div style={{ fontSize: 20, marginBottom: 4 }}>✅</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#166534" }}>Payment Complete!</div>
+                      <div style={{ fontSize: 12, color: "#166534", marginTop: 4 }}>Thank you for using FixNext Sheba</div>
+                    </div>
+                  ) : (
+                    <div style={{ background: "#FEF3C7", borderRadius: 12, padding: "14px", border: "1px solid #FDE68A", marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E", marginBottom: 4 }}>🎉 Service Completed!</div>
+                      <div style={{ fontSize: 12, color: "#92400E", marginBottom: 12 }}>Please complete your payment to finish the booking.</div>
+                      <button
+                        onClick={handlePayment}
+                        disabled={paymentLoading}
+                        style={{ width: "100%", background: paymentLoading ? "#B4B2A9" : "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "13px", fontSize: 14, fontWeight: 700, cursor: paymentLoading ? "not-allowed" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                      >
+                        {paymentLoading ? "Redirecting..." : (
+                          <>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
+                              <rect x="1" y="4" width="22" height="16" rx="2" /><line x1="1" y1="10" x2="23" y2="10" />
+                            </svg>
+                            Pay Now — {service.options[selectedOption]?.price}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Serviceman card */}
               {confirmedBooking?.servicemanId && servicemanInfo ? (
                 <div style={{ background: "#F0FBF6", borderRadius: 12, border: "1px solid #9FE1CB", padding: "14px", marginBottom: 8, textAlign: "left" }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#0F6E56", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Your Serviceman</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
                     <div style={{ width: 44, height: 44, borderRadius: "50%", overflow: "hidden", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      {servicemanInfo.avatar ? (
-                        <img src={servicemanInfo.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      ) : (
-                        <span style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{servicemanInfo.name?.charAt(0).toUpperCase()}</span>
-                      )}
+                      {servicemanInfo.avatar ? <img src={servicemanInfo.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{servicemanInfo.name?.charAt(0).toUpperCase()}</span>}
                     </div>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "#2C2C2A" }}>{servicemanInfo.name}</div>
                       <div style={{ fontSize: 12, color: "#1D9E75" }}>{servicemanInfo.specialty || "Serviceman"}</div>
-                      {servicemanInfo.rating > 0 && (
-                        <div style={{ fontSize: 11, color: "#888780" }}>⭐ {servicemanInfo.rating.toFixed(1)}</div>
-                      )}
+                      {servicemanInfo.rating > 0 && <div style={{ fontSize: 11, color: "#888780" }}>⭐ {servicemanInfo.rating.toFixed(1)}</div>}
                     </div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -742,7 +747,6 @@ export default function Home() {
                     ) : (
                       <div style={{ fontSize: 12, color: "#888780", textAlign: "center", padding: "8px" }}>Phone number not available</div>
                     )}
-                    {/* Chat button */}
                     <button onClick={() => router.push(`/chat/${confirmedBooking._id}`)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#0A2540", color: "#fff", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", width: "100%", fontFamily: "inherit" }}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
                         <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
@@ -753,13 +757,9 @@ export default function Home() {
                 </div>
               ) : confirmedBooking?.servicemanId ? (
                 <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-                  <button onClick={() => router.push(`/serviceman/${confirmedBooking.servicemanId}`)} style={{ width: "100%", background: "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                    View Serviceman Profile →
-                  </button>
+                  <button onClick={() => router.push(`/serviceman/${confirmedBooking.servicemanId}`)} style={{ width: "100%", background: "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>View Serviceman Profile →</button>
                   <button onClick={() => router.push(`/chat/${confirmedBooking._id}`)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#F0FBF6", color: "#1D9E75", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, border: "1px solid #9FE1CB", cursor: "pointer", width: "100%", fontFamily: "inherit" }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" strokeWidth="2.5" strokeLinecap="round">
-                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-                    </svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" strokeWidth="2.5" strokeLinecap="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg>
                     Chat with Serviceman
                   </button>
                 </div>
