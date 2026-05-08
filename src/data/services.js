@@ -4,6 +4,8 @@
     icon: "⚡",
     title: "Electrician",
     subtitle: "Licensed & insured technicians",
+    specialty: "Electrical",
+
     options: [
       { name: "Basic checkup", price: "৳350" },
       { name: "Wiring & sockets", price: "৳650" },
@@ -15,6 +17,8 @@
     icon: "🔧",
     title: "Plumber",
     subtitle: "Expert pipe & fixture repair",
+    specialty: "Plumbing",
+
     options: [
       { name: "Leak repair", price: "৳400" },
       { name: "Pipe replacement", price: "৳750" },
@@ -26,6 +30,7 @@
     icon: "❄️",
     title: "AC Service",
     subtitle: "Certified cooling specialists",
+    specialty: "HVAC",
     options: [
       { name: "Regular cleaning", price: "৳800" },
       { name: "Deep service", price: "৳1,400" },

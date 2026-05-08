@@ -264,7 +264,8 @@ export default function Home() {
       const response = await fetch("/api/booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ service: activeService, option: selectedOption, name, phone, address, userId: user.id }),
+        body: JSON.stringify({ service: activeService, option: selectedOption, name, phone, address, userId: user.id,
+        specialty: services[activeService]?.specialty, }),
       });
       const result = await response.json();
       if (result.success) {

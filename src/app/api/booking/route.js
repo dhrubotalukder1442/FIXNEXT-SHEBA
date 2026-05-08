@@ -1,18 +1,18 @@
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
-import { sanitize, isValidPhone, sanitizeMongoInput } from "@/lib/validate";
+import { sanitize, isValidPhone } from "@/lib/validate";
 
 export async function POST(req) {
   try {
     const body = await req.json();
     
-    // ✅ Sanitize all inputs
     const service = sanitize(body.service || "");
     const option = body.option;
     const name = sanitize(body.name || "");
     const phone = sanitize(body.phone || "");
     const address = sanitize(body.address || "");
     const userId = sanitize(body.userId || "");
+    const specialty = sanitize(body.specialty || ""); // ✅ নতুন
 
     if (!userId) {
       return Response.json(
@@ -21,8 +21,7 @@ export async function POST(req) {
       );
     }
 
-    // ✅ Validation
-    if (!service || option === null || option === undefined || !name || !phone || !address) {
+    if (!service || option === null || option === undefined || !name || !phone || !address || !specialty) {
       return Response.json(
         { success: false, message: "Missing required fields" },
         { status: 400 }
@@ -43,6 +42,7 @@ export async function POST(req) {
       phone,
       address,
       userId,
+      specialty, // ✅ নতুন
       status: "pending",
       createdAt: new Date(),
     };
@@ -51,7 +51,12 @@ export async function POST(req) {
     const db = client.db("fixnext-sheba");
     const result = await db.collection("bookings").insertOne(booking);
 
-    const servicemen = await db.collection("users").find({ role: "serviceman" }).toArray();
+    // ✅ শুধু matching specialty র serviceman রা notification পাবে
+    const servicemen = await db
+      .collection("users")
+      .find({ role: "serviceman", specialty: specialty })
+      .toArray();
+
     const notifications = servicemen.map((s) => ({
       servicemanId: s._id.toString(),
       bookingId: result.insertedId.toString(),
@@ -60,9 +65,11 @@ export async function POST(req) {
       phone,
       address,
       option,
+      specialty, // ✅ নতুন
       status: "unread",
       createdAt: new Date(),
     }));
+
     if (notifications.length > 0) {
       await db.collection("notifications").insertMany(notifications);
     }
@@ -116,7 +123,7 @@ export async function PATCH(req) {
     const db = client.db("fixnext-sheba");
 
     const updateData = { status };
-    if (servicemanId) updateData.servicemanId = servicemanId;  // ✅ servicemanId save
+    if (servicemanId) updateData.servicemanId = servicemanId;
 
     await db.collection("bookings").updateOne(
       { _id: new ObjectId(id) },
