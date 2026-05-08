@@ -43,6 +43,9 @@ export default function ServicemanPage() {
   // Messages
   const [allMessages, setAllMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  // Transactions
+  const [transactions, setTransactions] = useState([]);
+  const [txLoading, setTxLoading] = useState(false);
 
   const fetchNotifications = async (userId) => {
     try {
@@ -70,6 +73,16 @@ export default function ServicemanPage() {
       const fullData = await fullRes.json();
       if (fullData.success) setProfile(fullData.data);
     }
+  };
+
+  const fetchTransactions = async () => {
+    setTxLoading(true);
+    try {
+      const res = await fetch("/api/transactions");
+      const data = await res.json();
+      if (data.success) setTransactions(data.data);
+    } catch (err) { console.error(err); }
+    finally { setTxLoading(false); }
   };
 
   // Fetch all messages for serviceman's accepted bookings
@@ -173,6 +186,7 @@ export default function ServicemanPage() {
     fetchProfile();
     setSidebarTab(tab);
     if (tab === "messages" && user) fetchAllMessages(user.id);
+    if (tab === "transactions") fetchTransactions();
     setShowSidebar(true);
   };
 
@@ -211,6 +225,7 @@ export default function ServicemanPage() {
 
   const tabs = [
     { key: "profile", label: "Profile" },
+    { key: "transactions", label: "Transactions" },
     { key: "messages", label: "Messages" },
   ];
 
@@ -236,6 +251,7 @@ export default function ServicemanPage() {
                 <button key={t.key} onClick={() => {
                   setSidebarTab(t.key);
                   if (t.key === "messages" && user) fetchAllMessages(user.id);
+                  if (t.key === "transactions") fetchTransactions();
                 }} style={{ flex: 1, padding: "10px 4px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: sidebarTab === t.key ? "#F0FBF6" : "#fff", color: sidebarTab === t.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === t.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
                   {t.label}
                 </button>
@@ -335,6 +351,53 @@ export default function ServicemanPage() {
                     </div>
                   )}
                 </>
+              )}
+
+              {/* ── Transactions Tab ── */}
+              {sidebarTab === "transactions" && (
+                <div>
+                  {txLoading ? (
+                    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>Loading...</div>
+                  ) : transactions.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
+                      <div style={{ fontSize: 32, marginBottom: 8 }}>💳</div>
+                      No transactions yet
+                    </div>
+                  ) : (
+                    <>
+                      {/* Summary */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                        {[
+                          { label: "Total Revenue", value: `৳${transactions.filter(t => t.status === "paid").reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}`, color: "#1D9E75" },
+                          { label: "Transactions", value: transactions.length, color: "#0A2540" },
+                        ].map(s => (
+                          <div key={s.label} style={{ background: "#F9FAFB", borderRadius: 10, padding: "10px 12px", border: "1px solid #E5E7EB", textAlign: "center" }}>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
+                            <div style={{ fontSize: 10, color: "#888780", marginTop: 2 }}>{s.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Transaction list */}
+                      {transactions.map((t, i) => {
+                        const isPaid = t.status === "paid";
+                        return (
+                          <div key={i} style={{ background: "#F9FAFB", borderRadius: 10, padding: "11px 13px", marginBottom: 8, border: "1px solid #E5E7EB" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: isPaid ? "#1D9E75" : "#92400E" }}>
+                                ৳{(t.amount || 0).toLocaleString()}
+                              </span>
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: isPaid ? "#DCFCE7" : "#FEF3C7", color: isPaid ? "#166534" : "#92400E", textTransform: "capitalize" }}>
+                                {t.status}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 10, color: "#888780", fontFamily: "monospace", marginBottom: 3, wordBreak: "break-all" }}>{t.transactionId}</div>
+                            <div style={{ fontSize: 10, color: "#B4B2A9" }}>{t.createdAt ? new Date(t.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
               )}
 
               {/* ── Messages Tab ── */}

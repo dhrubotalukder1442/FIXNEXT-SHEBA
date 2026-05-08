@@ -35,6 +35,8 @@ export default function AdminPage() {
   const [modalTab, setModalTab] = useState("profile");
   const [modalLoading, setModalLoading] = useState(false);
   const [adminUser, setAdminUser] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [txLoading, setTxLoading] = useState(false);
 
   const bg = dark ? "#0D1117" : "#F0F4FF";
   const sidebar = dark ? "#161B22" : "#0A2540";
@@ -74,6 +76,16 @@ export default function AdminPage() {
     if (data.success) setUsers(data.data);
   };
 
+  const fetchTransactions = async () => {
+    setTxLoading(true);
+    try {
+      const res = await fetch("/api/transactions");
+      const data = await res.json();
+      if (data.success) setTransactions(data.data);
+    } catch (err) { console.error(err); }
+    finally { setTxLoading(false); }
+  };
+
   const updateStatus = async (id, status) => {
     await fetch("/api/booking", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
     fetchBookings();
@@ -97,7 +109,7 @@ export default function AdminPage() {
     setDeleteId(null); fetchUsers();
   };
 
-  useEffect(() => { fetchBookings(); fetchUsers(); }, []);
+  useEffect(() => { fetchBookings(); fetchUsers(); fetchTransactions(); }, []);
 
   const counts = {
     total: bookings.length,
@@ -140,6 +152,7 @@ export default function AdminPage() {
     { key: "dashboard", label: "Dashboard", icon: "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" },
     { key: "bookings", label: "Bookings", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" },
     { key: "users", label: "Users", icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" },
+    { key: "transactions", label: "Transactions", icon: "M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" },
     { key: "profile", label: "Profile", icon: "M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" },
   ];
 
@@ -212,7 +225,7 @@ export default function AdminPage() {
               <input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} style={{ padding: "7px 14px 7px 34px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F5F8FF", color: text, fontSize: 12, outline: "none", width: 200, fontFamily: "inherit" }} />
               <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth={2} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
             </div>
-            <button onClick={() => { fetchBookings(); fetchUsers(); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: `1px solid ${border}`, background: "transparent", color: accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+            <button onClick={() => { fetchBookings(); fetchUsers(); fetchTransactions(); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: `1px solid ${border}`, background: "transparent", color: accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
               <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" style={{ transition: "transform 0.5s", transform: spinning ? "rotate(360deg)" : "rotate(0deg)" }}><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
               Refresh
             </button>
@@ -457,6 +470,78 @@ export default function AdminPage() {
               </div>
             </>
           )}
+
+          {/* ── TRANSACTIONS TAB ── */}
+          {activeTab === "transactions" && (() => {
+            const txPaid = transactions.filter(t => t.status === "paid").length;
+            const txPending = transactions.filter(t => t.status === "pending").length;
+            const totalRevenue = transactions.filter(t => t.status === "paid").reduce((sum, t) => sum + (t.amount || 0), 0);
+            const txStatusMap = {
+              paid: { bg: "rgba(34,197,94,0.15)", color: "#4ADE80" },
+              pending: { bg: "rgba(245,158,11,0.15)", color: "#F59E0B" },
+              failed: { bg: "rgba(239,68,68,0.15)", color: "#F87171" },
+            };
+            return (
+              <>
+                <div style={{ marginBottom: "1.5rem" }}>
+                  <h1 style={{ fontSize: 22, fontWeight: 700, color: text, margin: "0 0 4px" }}>Transactions</h1>
+                  <p style={{ fontSize: 12, color: muted, margin: 0 }}>{transactions.length} total transactions</p>
+                </div>
+
+                {/* Summary cards */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: "1.5rem" }}>
+                  {[
+                    { label: "Total Revenue", value: `৳${totalRevenue.toLocaleString()}`, gradient: "linear-gradient(135deg, #065F46, #10B981)", icon: "💰" },
+                    { label: "Paid", value: txPaid, gradient: "linear-gradient(135deg, #1E3A5F, #3B82F6)", icon: "✅" },
+                    { label: "Pending", value: txPending, gradient: "linear-gradient(135deg, #92400E, #D97706)", icon: "⏳" },
+                  ].map((s, i) => (
+                    <div key={i} style={{ background: s.gradient, borderRadius: 14, padding: "1.25rem 1.5rem", position: "relative", overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.25)" }}>
+                      <div style={{ position: "absolute", right: -10, top: -10, width: 70, height: 70, borderRadius: "50%", background: "rgba(255,255,255,0.07)" }} />
+                      <div style={{ fontSize: 20, marginBottom: 8 }}>{s.icon}</div>
+                      <div style={{ fontSize: 26, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{s.value}</div>
+                      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", marginTop: 6 }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ background: card, borderRadius: 14, border: `1px solid ${border}`, overflow: "hidden", boxShadow: dark ? "0 4px 20px rgba(0,0,0,0.2)" : "0 4px 20px rgba(0,0,0,0.06)" }}>
+                  <div style={{ padding: "1rem 1.5rem", borderBottom: `1px solid ${border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: text }}>Transaction Records</span>
+                    <span style={{ fontSize: 11, color: muted }}>{transactions.length} records</span>
+                  </div>
+                  {txLoading ? (
+                    <div style={{ padding: "3rem", textAlign: "center", color: muted, fontSize: 13 }}>Loading…</div>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr>{["Transaction ID", "Booking ID", "Amount", "Status", "Date"].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                        </thead>
+                        <tbody>
+                          {transactions.length === 0 ? (
+                            <tr><td colSpan={5} style={{ padding: "2.5rem", textAlign: "center", color: muted, fontSize: 13 }}>No transactions found</td></tr>
+                          ) : transactions.map((t, i) => {
+                            const sc = txStatusMap[t.status] || { bg: "rgba(255,255,255,0.06)", color: muted };
+                            return (
+                              <tr key={i} onMouseEnter={e => e.currentTarget.style.background = dark ? "rgba(255,255,255,0.02)" : "#F8FAFF"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} style={{ transition: "background 0.15s" }}>
+                                <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: 11, color: accent }}>{t.transactionId}</td>
+                                <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: 11, color: muted }}>{t.bookingId}</td>
+                                <td style={{ ...tdStyle, fontWeight: 700, color: t.status === "paid" ? "#4ADE80" : text }}>৳{(t.amount || 0).toLocaleString()}</td>
+                                <td style={tdStyle}>
+                                  <span style={{ background: sc.bg, color: sc.color, padding: "3px 10px", borderRadius: 6, fontSize: 10, fontWeight: 600, textTransform: "capitalize" }}>{t.status}</span>
+                                </td>
+                                <td style={{ ...tdStyle, color: muted, fontSize: 11 }}>{t.createdAt ? new Date(t.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
 
           {/* ── PROFILE TAB ── */}
           {activeTab === "profile" && (
