@@ -1,6 +1,15 @@
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { sanitize, isValidPhone } from "@/lib/validate";
+import Pusher from "pusher";
+
+const pusher = new Pusher({
+  appId: process.env.PUSHER_APP_ID,
+  key: process.env.PUSHER_KEY,
+  secret: process.env.PUSHER_SECRET,
+  cluster: process.env.PUSHER_CLUSTER || "ap2",
+  useTLS: true,
+});
 
 export async function POST(req) {
   try {
@@ -12,7 +21,7 @@ export async function POST(req) {
     const phone = sanitize(body.phone || "");
     const address = sanitize(body.address || "");
     const userId = sanitize(body.userId || "");
-    const specialty = sanitize(body.specialty || ""); // ✅ নতুন
+    const specialty = sanitize(body.specialty || "");
 
     if (!userId) {
       return Response.json(
@@ -42,7 +51,7 @@ export async function POST(req) {
       phone,
       address,
       userId,
-      specialty, // ✅ নতুন
+      specialty,
       status: "pending",
       createdAt: new Date(),
     };
@@ -51,13 +60,24 @@ export async function POST(req) {
     const db = client.db("fixnext-sheba");
     const result = await db.collection("bookings").insertOne(booking);
 
-    // ✅ শুধু matching specialty র serviceman রা notification পাবে
     const servicemen = await db
       .collection("users")
       .find({ role: "serviceman", specialty: specialty })
       .toArray();
 
-    const notifications = servicemen.map((s) => ({
+    // Filter only servicemen with no active bookings
+    const availableServicemen = [];
+    for (const s of servicemen) {
+      const activeBookingCount = await db.collection("bookings").countDocuments({
+        servicemanId: s._id.toString(),
+        status: { $nin: ["completed"] },
+      });
+      if (activeBookingCount === 0) {
+        availableServicemen.push(s);
+      }
+    }
+
+    const notifications = availableServicemen.map((s) => ({
       servicemanId: s._id.toString(),
       bookingId: result.insertedId.toString(),
       service,
@@ -65,13 +85,28 @@ export async function POST(req) {
       phone,
       address,
       option,
-      specialty, // ✅ নতুন
+      specialty,
       status: "unread",
       createdAt: new Date(),
     }));
 
     if (notifications.length > 0) {
       await db.collection("notifications").insertMany(notifications);
+    }
+
+    // Send real-time notification to available servicemen only
+    for (const s of availableServicemen) {
+      await pusher.trigger(`serviceman-${s._id.toString()}`, "new-booking", {
+        _id: result.insertedId.toString(),
+        name,
+        phone,
+        service,
+        address,
+        option,
+        specialty,
+        status: "unread",
+        createdAt: new Date().toISOString(),
+      });
     }
 
     return Response.json(
@@ -122,6 +157,43 @@ export async function PATCH(req) {
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
 
+    // Handle cancel — only allowed when status is pending
+    if (status === "cancelled") {
+      const booking = await db.collection("bookings").findOne({ _id: new ObjectId(id) });
+
+      if (!booking) {
+        return Response.json(
+          { success: false, message: "Booking not found" },
+          { status: 404 }
+        );
+      }
+
+      if (booking.status !== "pending") {
+        return Response.json(
+          { success: false, message: "Only pending bookings can be cancelled" },
+          { status: 400 }
+        );
+      }
+
+      await db.collection("bookings").updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: "cancelled" } }
+      );
+
+      // Notify the serviceman who accepted the booking
+      if (booking.servicemanId) {
+        await pusher.trigger(`serviceman-${booking.servicemanId}`, "booking-cancelled", {
+          bookingId: id,
+          message: "A booking has been cancelled.",
+          service: booking.service,
+          name: booking.name,
+        });
+      }
+
+      return Response.json({ success: true, message: "Booking cancelled successfully" });
+    }
+
+    // Handle other status updates (accepted, completed, etc.)
     const updateData = { status };
     if (servicemanId) updateData.servicemanId = servicemanId;
 
@@ -129,6 +201,17 @@ export async function PATCH(req) {
       { _id: new ObjectId(id) },
       { $set: updateData }
     );
+
+    // Notify user when booking is completed
+    if (status === "completed") {
+      const booking = await db.collection("bookings").findOne({ _id: new ObjectId(id) });
+      if (booking?.userId) {
+        await pusher.trigger(`user-${booking.userId}`, "booking-completed", {
+          bookingId: id,
+          message: "Your service has been completed. Please share your feedback.",
+        });
+      }
+    }
 
     return Response.json({ success: true, message: "Status updated" });
   } catch (err) {

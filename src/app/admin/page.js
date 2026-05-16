@@ -53,6 +53,9 @@ export default function AdminPage() {
   const [txDetailLoading, setTxDetailLoading] = useState(false);
   const [txBooking, setTxBooking] = useState(null);
   const [txUser, setTxUser] = useState(null);
+  const [pendingServicemen, setPendingServicemen] = useState([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [verifyAction, setVerifyAction] = useState(null); 
 
   const bg = dark ? "#0D1117" : "#F0F4FF";
   const sidebar = dark ? "#161B22" : "#0A2540";
@@ -216,11 +219,35 @@ export default function AdminPage() {
     fetchUsers();
   };
 
+  const fetchPendingServicemen = async () => {
+  setPendingLoading(true);
+  try {
+    const res = await fetch("/api/admin/pending-servicemen");
+    const data = await res.json();
+    if (data.success) setPendingServicemen(data.data);
+  } finally {
+    setPendingLoading(false);
+  }
+};
+
   useEffect(() => {
     fetchBookings();
     fetchUsers();
     fetchTransactions();
+    fetchPendingServicemen();
   }, []);
+
+
+  const handleVerify = async (servicemanId, action) => {
+  await fetch("/api/admin/verify-serviceman", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ servicemanId, action }),
+  });
+  setVerifyAction(null);
+  fetchPendingServicemen();
+  fetchUsers(); 
+};
 
   const counts = {
     total: bookings.length,
@@ -345,6 +372,9 @@ export default function AdminPage() {
       label: "Users",
       icon: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2",
     },
+    { key: "verify",
+      label: "Verify Servicemen",
+      icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" },
     {
       key: "transactions",
       label: "Transactions",
@@ -524,6 +554,7 @@ export default function AdminPage() {
           >
             Navigation
           </div>
+          
           {navItems.map((item) => (
             <button
               key={item.key}
@@ -1243,6 +1274,104 @@ export default function AdminPage() {
             );
           })()}
 
+          {/* ══ VERIFY SERVICEMEN TAB ══ */}
+{activeTab === "verify" && (
+  <>
+    <div style={{ marginBottom: "1.25rem" }}>
+      <h1 style={{ fontSize: 20, fontWeight: 700, color: text, margin: "0 0 4px" }}>
+        Verify Servicemen
+      </h1>
+      <p style={{ fontSize: 12, color: muted, margin: 0 }}>
+        {pendingServicemen.length} waiting for approval
+      </p>
+    </div>
+
+    {/* Pending count card */}
+    <div style={{ background: "linear-gradient(135deg,#92400E,#D97706)", borderRadius: 14, padding: "1rem 1.25rem", marginBottom: "1.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", boxShadow: "0 4px 20px rgba(0,0,0,0.25)" }}>
+      <div>
+        <div style={{ fontSize: 28, fontWeight: 700, color: "#fff" }}>{pendingServicemen.length}</div>
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.65)", marginTop: 4 }}>Pending Verification</div>
+      </div>
+      <div style={{ fontSize: 36 }}>⏳</div>
+    </div>
+
+    <div style={{ background: card, borderRadius: 14, border: `1px solid ${border}`, overflow: "hidden", boxShadow: dark ? "0 4px 20px rgba(0,0,0,0.2)" : "0 4px 20px rgba(0,0,0,0.06)" }}>
+      <div style={{ padding: "1rem 1.5rem", borderBottom: `1px solid ${border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: text }}>Pending Servicemen</span>
+        <button
+          onClick={fetchPendingServicemen}
+          style={{ fontSize: 11, color: accent, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
+        >
+          Refresh ↺
+        </button>
+      </div>
+
+      {pendingLoading ? (
+        <div style={{ padding: "3rem", textAlign: "center", color: muted, fontSize: 13 }}>Loading…</div>
+      ) : pendingServicemen.length === 0 ? (
+        <div style={{ padding: "3rem", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: text, marginBottom: 6 }}>সব clear!</div>
+          <div style={{ fontSize: 12, color: muted }}>কোনো pending serviceman নেই।</div>
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto" }} className="scrollbar-thin">
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+            <thead>
+              <tr>
+                {["Serviceman", "Email", "Phone", "Specialty", "Joined", "Actions"].map((h) => (
+                  <th key={h} style={thStyle}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pendingServicemen.map((u) => (
+                <tr
+                  key={u._id}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = dark ? "rgba(255,255,255,0.02)" : "#F8FAFF")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  style={{ transition: "background 0.15s" }}
+                >
+                  <td style={tdStyle}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: "50%", background: `hsl(${(u.name?.charCodeAt(0) || 0) * 10},55%,45%)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{u.name?.charAt(0).toUpperCase()}</span>
+                      </div>
+                      <span style={{ fontWeight: 600, color: text }}>{u.name}</span>
+                    </div>
+                  </td>
+                  <td style={{ ...tdStyle, color: muted, fontSize: 11 }}>{u.email}</td>
+                  <td style={{ ...tdStyle, color: muted, fontSize: 11 }}>{u.phone || "—"}</td>
+                  <td style={{ ...tdStyle, color: muted, fontSize: 11 }}>{u.specialty || "—"}</td>
+                  <td style={{ ...tdStyle, color: muted, fontSize: 11 }}>
+                    {u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        onClick={() => setVerifyAction({ user: u, action: "approved" })}
+                        style={{ fontSize: 11, padding: "5px 12px", background: "rgba(34,197,94,0.12)", color: "#4ADE80", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
+                      >
+                        ✓ Approve
+                      </button>
+                      <button
+                        onClick={() => setVerifyAction({ user: u, action: "rejected" })}
+                        style={{ fontSize: 11, padding: "5px 12px", background: "rgba(239,68,68,0.1)", color: "#F87171", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
+                      >
+                        ✕ Reject
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  </>
+)}
+
           {/* ══ PROFILE TAB ══ */}
           {activeTab === "profile" && (
             <>
@@ -1500,6 +1629,39 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+    
+{/* ══ VERIFY CONFIRM MODAL ══ */}
+{verifyAction && (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, backdropFilter: "blur(4px)", padding: "1rem" }}>
+    <div style={{ background: card, padding: "2rem", borderRadius: 18, width: "100%", maxWidth: 340, textAlign: "center", border: `1px solid ${border}`, boxShadow: "0 25px 60px rgba(0,0,0,0.4)" }}>
+      <div style={{ width: 52, height: 52, borderRadius: "50%", background: verifyAction.action === "approved" ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem", border: `1px solid ${verifyAction.action === "approved" ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)"}` }}>
+        <span style={{ fontSize: 22 }}>{verifyAction.action === "approved" ? "✓" : "✕"}</span>
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: text, marginBottom: 6 }}>
+        {verifyAction.action === "approved" ? "Approve করবেন?" : "Reject করবেন?"}
+      </div>
+      <div style={{ fontSize: 13, color: muted, marginBottom: "1.5rem", lineHeight: 1.5 }}>
+        <strong style={{ color: text }}>{verifyAction.user.name}</strong> কে{" "}
+        {verifyAction.action === "approved" ? "approve করলে সে booking পাবে।" : "reject করা হবে।"}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={() => handleVerify(verifyAction.user._id, verifyAction.action)}
+          style={{ flex: 1, padding: "11px", background: verifyAction.action === "approved" ? "linear-gradient(135deg,#065F46,#10B981)" : "linear-gradient(135deg,#DC2626,#EF4444)", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontFamily: "inherit", fontSize: 13 }}
+        >
+          {verifyAction.action === "approved" ? "Approve" : "Reject"}
+        </button>
+        <button
+          onClick={() => setVerifyAction(null)}
+          style={{ flex: 1, padding: "11px", background: dark ? "rgba(255,255,255,0.06)" : "#F3F4F6", color: text, border: `1px solid ${border}`, borderRadius: 10, cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}
+        >
+          Cancel
+        </button>
+      </div>
     </div>
+  </div>
+)}
+</div>
+
   );
 }

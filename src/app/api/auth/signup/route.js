@@ -66,6 +66,7 @@ export async function POST(req) {
       email: identifier,
       password: hashedPassword,
       role,
+      status: role === "serviceman" ? "pending" : "active",
       specialty: "",
       bio: "",
       phone: "",
@@ -74,11 +75,14 @@ export async function POST(req) {
       createdAt: new Date(),
     });
 
+    const status = role === "serviceman" ? "pending" : "active";
+
     const token = await signToken({
       id: result.insertedId.toString(),
       name,
       email: identifier,
       role,
+      status,
     });
 
     const cookieStore = await cookies();
@@ -97,6 +101,7 @@ export async function POST(req) {
         name,
         email: identifier,
         role,
+        status,
       },
     });
   } catch (error) {

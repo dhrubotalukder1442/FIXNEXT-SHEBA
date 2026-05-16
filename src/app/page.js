@@ -69,7 +69,6 @@ export default function Home() {
   const [isCompleted, setIsCompleted] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState(null);
-  // Transactions
   const [transactions, setTransactions] = useState([]);
   const [txLoading, setTxLoading] = useState(false);
 
@@ -226,7 +225,6 @@ export default function Home() {
         body: JSON.stringify({ bookingId: confirmedBooking._id }),
       });
       const data = await res.json();
-      console.log("Payment response:", data);
       if (data.success && data.url) {
         window.location.href = data.url;
       } else {
@@ -237,6 +235,28 @@ export default function Home() {
       alert("Something went wrong.");
     } finally {
       setPaymentLoading(false);
+    }
+  };
+
+  // Cancel booking handler
+  const handleCancelBooking = async (bookingId) => {
+    if (!confirm("Are you sure you want to cancel this booking?")) return;
+    try {
+      const res = await fetch("/api/bookings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: bookingId, status: "cancelled" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBookingHistory(prev =>
+          prev.map(b => b._id?.toString() === bookingId ? { ...b, status: "cancelled" } : b)
+        );
+      } else {
+        alert(data.message || "Failed to cancel booking");
+      }
+    } catch {
+      alert("Something went wrong.");
     }
   };
 
@@ -264,8 +284,7 @@ export default function Home() {
       const response = await fetch("/api/booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ service: activeService, option: selectedOption, name, phone, address, userId: user.id,
-        specialty: services[activeService]?.specialty, }),
+        body: JSON.stringify({ service: activeService, option: selectedOption, name, phone, address, userId: user.id, specialty: services[activeService]?.specialty }),
       });
       const result = await response.json();
       if (result.success) {
@@ -353,7 +372,7 @@ export default function Home() {
     background: "#FAFAFA", outline: "none", boxSizing: "border-box",
   };
 
-  const statusColor = { pending: "#F59E0B", accepted: "#3B82F6", completed: "#22C55E" };
+  const statusColor = { pending: "#F59E0B", accepted: "#3B82F6", completed: "#22C55E", cancelled: "#DC2626" };
   const formatDate = (date) => new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 
   const tabs = [
@@ -367,7 +386,7 @@ export default function Home() {
   return (
     <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", paddingBottom: "2rem" }}>
 
-      {/* ── Review Popup ── */}
+      {/* Review Popup */}
       {showReviewPopup && !reviewed && (
         <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(10,37,64,0.65)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem", backdropFilter: "blur(6px)" }}>
           <div style={{ background: "#fff", borderRadius: 24, width: "100%", maxWidth: 360, padding: "1.75rem", position: "relative", boxShadow: "0 32px 80px rgba(10,37,64,0.4)" }}>
@@ -398,7 +417,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Sidebar ── */}
+      {/* Sidebar */}
       {showSidebar && (
         <div onClick={() => setShowSidebar(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(10,37,64,0.5)" }}>
           <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 300, background: "#fff", display: "flex", flexDirection: "column" }}>
@@ -419,7 +438,7 @@ export default function Home() {
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
 
-              {/* ── Profile Tab ── */}
+              {/* Profile Tab */}
               {sidebarTab === "profile" && (
                 <div>
                   <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
@@ -452,7 +471,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* ── History Tab ── */}
+              {/* History Tab */}
               {sidebarTab === "history" && (
                 <div>
                   {bookingHistory.length === 0 ? (
@@ -480,13 +499,22 @@ export default function Home() {
                             </button>
                           )}
                         </div>
+                        {/* Cancel button — only for pending bookings */}
+                        {b.status === "pending" && (
+                          <button
+                            onClick={() => handleCancelBooking(b._id?.toString())}
+                            style={{ width: "100%", marginTop: 6, fontSize: 11, color: "#DC2626", background: "#FFF5F5", border: "1px solid #FECACA", borderRadius: 7, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
+                          >
+                            Cancel Booking
+                          </button>
+                        )}
                       </div>
                     ))
                   )}
                 </div>
               )}
 
-              {/* ── Transactions Tab ── */}
+              {/* Transactions Tab */}
               {sidebarTab === "transactions" && (
                 <div>
                   {txLoading ? (
@@ -529,7 +557,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* ── Notifications Tab ── */}
+              {/* Notifications Tab */}
               {sidebarTab === "notifications" && (
                 <div>
                   {userNotifications.length === 0 ? (
@@ -551,7 +579,7 @@ export default function Home() {
                 </div>
               )}
 
-              {/* ── Messages Tab ── */}
+              {/* Messages Tab */}
               {sidebarTab === "messages" && (
                 <div>
                   {messagesLoading ? (
@@ -599,7 +627,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Overlay Modal ── */}
+      {/* Overlay Modal */}
       {showModal && (
         <div onClick={() => setShowModal(false)} style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(10,37,64,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem" }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 360, padding: "1.5rem", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
@@ -632,7 +660,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* ── Hero ── */}
+      {/* Hero */}
       <div style={{ background: "#0A2540", padding: "1.5rem 1.25rem 2rem", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", width: 220, height: 220, background: "#1D9E75", opacity: 0.07, borderRadius: "50%", top: -70, right: -50, pointerEvents: "none" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
@@ -681,7 +709,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* ── Services Grid ── */}
+      {/* Services Grid */}
       <div style={{ padding: "1.25rem" }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.75rem" }}>Choose a service</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
@@ -695,7 +723,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ── Detail Panel ── */}
+      {/* Detail Panel */}
       {service && (
         <div style={{ padding: "0 1.25rem 1.5rem" }}>
           {!confirmed ? (

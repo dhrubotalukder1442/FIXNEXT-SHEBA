@@ -135,7 +135,7 @@ export default function SignupPage() {
       const signupData = await signupRes.json();
       if (signupData.success) {
         localStorage.setItem("user", JSON.stringify(signupData.user));
-        if (signupData.user.role === "serviceman") router.push("/serviceman");
+        if (signupData.user.role === "serviceman") router.push("pending-approval");
         else router.push("/");
       } else {
         alert(signupData.message || "Signup failed");

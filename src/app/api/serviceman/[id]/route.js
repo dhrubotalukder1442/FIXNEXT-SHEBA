@@ -3,7 +3,7 @@ import { ObjectId } from "mongodb";
 
 export async function GET(req, { params }) {
   try {
-    const { id } = await params;  // ✅ await করো
+    const { id } = await params;  // ✅ await 
 
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
