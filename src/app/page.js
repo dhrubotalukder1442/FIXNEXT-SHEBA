@@ -526,28 +526,76 @@ export default function Home() {
                     </div>
                   ) : (
                     <>
+                      {/* Summary card */}
                       <div style={{ background: "#F0FBF6", borderRadius: 10, padding: "12px 14px", marginBottom: 12, border: "1px solid #9FE1CB" }}>
                         <div style={{ fontSize: 11, color: "#0F6E56", fontWeight: 600, marginBottom: 4 }}>Total Paid</div>
                         <div style={{ fontSize: 22, fontWeight: 700, color: "#1D9E75" }}>
                           ৳{transactions.filter(t => t.status === "paid").reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
                         </div>
-                        <div style={{ fontSize: 11, color: "#888780", marginTop: 4 }}>{transactions.filter(t => t.status === "paid").length} successful payment(s)</div>
+                        <div style={{ fontSize: 11, color: "#888780", marginTop: 4 }}>
+                          {transactions.filter(t => t.status === "paid").length} successful payment(s)
+                        </div>
                       </div>
+
+                      {/* Per-transaction cards — each linked to its booking */}
                       {transactions.map((t, i) => {
                         const isPaid = t.status === "paid";
+                        const bk = t.booking; // populated by backend $lookup
+
                         return (
-                          <div key={i} style={{ background: "#F9FAFB", borderRadius: 10, padding: "11px 13px", marginBottom: 8, border: "1px solid #E5E7EB" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                              <span style={{ fontSize: 15, fontWeight: 700, color: isPaid ? "#1D9E75" : "#92400E" }}>
+                          <div key={i} style={{ background: "#F9FAFB", borderRadius: 12, marginBottom: 10, border: `1px solid ${isPaid ? "#9FE1CB" : "#FDE68A"}`, overflow: "hidden" }}>
+
+                            {/* Top row: amount + badge */}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 13px 8px" }}>
+                              <span style={{ fontSize: 16, fontWeight: 700, color: isPaid ? "#1D9E75" : "#92400E" }}>
                                 ৳{(t.amount || 0).toLocaleString()}
                               </span>
-                              <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 6, background: isPaid ? "#DCFCE7" : "#FEF3C7", color: isPaid ? "#166534" : "#92400E", textTransform: "capitalize" }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 6, background: isPaid ? "#DCFCE7" : "#FEF3C7", color: isPaid ? "#166534" : "#92400E" }}>
                                 {isPaid ? "✓ Paid" : t.status}
                               </span>
                             </div>
-                            <div style={{ fontSize: 10, color: "#888780", fontFamily: "monospace", marginBottom: 4, wordBreak: "break-all" }}>{t.transactionId}</div>
-                            <div style={{ fontSize: 10, color: "#B4B2A9" }}>
-                              {t.createdAt ? new Date(t.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+
+                            {/* Booking details section — এটাই নতুন অংশ */}
+                            {bk && (
+                              <div style={{ margin: "0 13px 10px", background: "#fff", borderRadius: 8, padding: "9px 11px", border: "1px solid #E5E7EB" }}>
+                                <div style={{ fontSize: 10, color: "#888780", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                                  Booking details
+                                </div>
+                                {[
+                                  ["Service", bk.service],
+                                  ["Package", bk.option !== undefined ? `Option ${bk.option + 1}` : "—"],
+                                  ["Customer", bk.name],
+                                  ["Address", bk.address],
+                                ].map(([label, val]) => (
+                                  <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "2px 0" }}>
+                                    <span style={{ color: "#888780" }}>{label}</span>
+                                    <span style={{ fontWeight: 600, color: "#2C2C2A", maxWidth: "60%", textAlign: "right", wordBreak: "break-word" }}>{val || "—"}</span>
+                                  </div>
+                                ))}
+                                {/* Booking date */}
+                                {bk.createdAt && (
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "2px 0" }}>
+                                    <span style={{ color: "#888780" }}>Booked on</span>
+                                    <span style={{ fontWeight: 600, color: "#2C2C2A" }}>
+                                      {new Date(bk.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Footer: transaction ID + paid timestamp */}
+                            <div style={{ padding: "0 13px 11px" }}>
+                              <div style={{ fontSize: 10, color: "#B4B2A9", fontFamily: "monospace", wordBreak: "break-all", marginBottom: 2 }}>
+                                {t.transactionId}
+                              </div>
+                              <div style={{ fontSize: 10, color: "#B4B2A9" }}>
+                                {isPaid && t.paidAt
+                                  ? `Paid: ${new Date(t.paidAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                                  : t.createdAt
+                                  ? `Initiated: ${new Date(t.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                                  : "—"}
+                              </div>
                             </div>
                           </div>
                         );

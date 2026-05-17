@@ -60,17 +60,22 @@ export async function POST(req) {
     const db = client.db("fixnext-sheba");
     const result = await db.collection("bookings").insertOne(booking);
 
+    // isOnline: { $ne: false } কেন?
+    // পুরোনো accounts এ isOnline field নেই (undefined)।
+    // isOnline: true দিলে তারা miss হয়ে যেত।
+    // $ne: false মানে — offline explicitly করেনি, তারা সবাই online।
+    // এটা backward-compatible — toggle ছাড়া পুরোনো accounts ও কাজ করবে।
     const servicemen = await db
       .collection("users")
-      .find({ role: "serviceman", specialty: specialty })
+      .find({ role: "serviceman", specialty: specialty, isOnline: { $ne: false } })
       .toArray();
 
-    // Filter only servicemen with no active bookings
+    // cancelled বাদ দিতে হবে — cancelled booking কে active ধরা ঠিক না।
     const availableServicemen = [];
     for (const s of servicemen) {
       const activeBookingCount = await db.collection("bookings").countDocuments({
         servicemanId: s._id.toString(),
-        status: { $nin: ["completed"] },
+        status: { $nin: ["completed", "cancelled"] },
       });
       if (activeBookingCount === 0) {
         availableServicemen.push(s);
