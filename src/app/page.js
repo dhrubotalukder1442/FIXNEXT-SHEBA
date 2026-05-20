@@ -71,6 +71,8 @@ export default function Home() {
   const [paymentStatus, setPaymentStatus] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [txLoading, setTxLoading] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -273,6 +275,7 @@ export default function Home() {
     if (!storedUser) { router.push("/login"); return; }
     if (!activeService || selectedOption === null) { alert("Please select a service and package"); return; }
     if (!name || !phone || !address) { alert("Please fill all fields"); return; }
+    if (!scheduledAt) { alert("Please select a preferred date & time"); return; }
     setShowModal(true);
   };
 
@@ -284,7 +287,7 @@ export default function Home() {
       const response = await fetch("/api/booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ service: activeService, option: selectedOption, name, phone, address, userId: user.id, specialty: services[activeService]?.specialty }),
+        body: JSON.stringify({ service: activeService, option: selectedOption, name, phone, address, userId: user.id, specialty: services[activeService]?.specialty, scheduledAt }),
       });
       const result = await response.json();
       if (result.success) {
@@ -349,6 +352,7 @@ export default function Home() {
     setShowReviewPopup(false);
     setIsCompleted(false);
     setPaymentStatus(null);
+    setScheduledAt("");
   };
 
   const handleLogout = async () => {
@@ -692,7 +696,7 @@ export default function Home() {
                 </div>
               ))}
               <div style={{ borderTop: "1px solid #9FE1CB", marginTop: 8, paddingTop: 8 }}>
-                {[["Name", name], ["Phone", phone], ["Address", address]].map(([label, val]) => (
+                {[["Name", name], ["Phone", phone], ["Address", address], ["Scheduled", scheduledAt ? new Date(scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"]].map(([label, val]) => (
                   <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "2px 0" }}>
                     <span style={{ color: "#0F6E56" }}>{label}</span>
                     <span style={{ fontWeight: 600, color: "#2C2C2A", maxWidth: "60%", textAlign: "right", wordBreak: "break-word" }}>{val}</span>
@@ -760,14 +764,44 @@ export default function Home() {
       {/* Services Grid */}
       <div style={{ padding: "1.25rem" }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.75rem" }}>Choose a service</div>
+
+        {/* Search box — local filter, no API call দরকার নেই কারণ services data static।
+            real-time filter হয় client-side এ, UX অনেক faster হয়। */}
+        <div style={{ position: "relative", marginBottom: "0.75rem" }}>
+          <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#888780" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            placeholder="Search services..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ ...inputStyle, paddingLeft: 30, marginBottom: 0 }}
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#888780", padding: 2, display: "flex", alignItems: "center" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          )}
+        </div>
+
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-          {Object.entries(services).map(([key, s]) => (
+          {/* searchQuery দিয়ে title + subtitle filter করা হচ্ছে, case-insensitive */}
+          {Object.entries(services).filter(([, s]) =>
+            !searchQuery || s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.subtitle?.toLowerCase().includes(searchQuery.toLowerCase())
+          ).map(([key, s]) => (
             <div key={key} onClick={() => handleSelectService(key)} style={{ background: activeService === key ? "#F0FBF6" : "#fff", border: activeService === key ? "1.5px solid #1D9E75" : "1px solid #E5E7EB", borderRadius: 12, padding: "12px 8px", textAlign: "center", cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
               <div style={{ fontSize: 22, marginBottom: 5, lineHeight: 1 }}>{s.icon}</div>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#2C2C2A", lineHeight: 1.3 }}>{s.title}</div>
               <div style={{ fontSize: 10, color: "#888780", marginTop: 2, lineHeight: 1.3 }}>{s.subtitle}</div>
             </div>
           ))}
+          {searchQuery && Object.entries(services).filter(([, s]) =>
+            s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.subtitle?.toLowerCase().includes(searchQuery.toLowerCase())
+          ).length === 0 && (
+            <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "1.5rem 0", color: "#888780", fontSize: 13 }}>
+              No services found for &ldquo;{searchQuery}&rdquo;
+            </div>
+          )}
         </div>
       </div>
 
@@ -798,7 +832,20 @@ export default function Home() {
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Your Details</div>
                 <input placeholder="Your Name" value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
                 <input placeholder="Phone Number" value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
-                <input placeholder="Address" value={address} onChange={(e) => setAddress(e.target.value)} style={{ ...inputStyle, marginBottom: 0 }} />
+                <input placeholder="Address" value={address} onChange={(e) => setAddress(e.target.value)} style={inputStyle} />
+                {/* Scheduling — user নির্দিষ্ট time দিতে পারবে।
+                    min = এখন থেকে 1 ঘন্টা পরে, কারণ immediate booking এর জন্য
+                    কমপক্ষে 1 ঘন্টার lead time দরকার। */}
+                <div style={{ marginBottom: 0 }}>
+                  <div style={{ fontSize: 11, color: "#888780", marginBottom: 4, fontWeight: 600 }}>Preferred Date & Time *</div>
+                  <input
+                    type="datetime-local"
+                    value={scheduledAt}
+                    onChange={(e) => setScheduledAt(e.target.value)}
+                    min={new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16)}
+                    style={{ ...inputStyle, marginBottom: 0, colorScheme: "light" }}
+                  />
+                </div>
               </div>
               <button onClick={handleOpenModal} disabled={selectedOption === null} style={{ width: "100%", background: selectedOption === null ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "14px", fontSize: 15, fontWeight: 700, cursor: selectedOption === null ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 4, fontFamily: "inherit" }}>
                 <CalendarIcon />Book Now
@@ -820,6 +867,7 @@ export default function Home() {
                   ["Price", service.options[selectedOption]?.price],
                   ["Name", name],
                   ["Phone", phone],
+                  ["Scheduled", scheduledAt ? new Date(scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"],
                   ["Status", "Confirmed ✓"],
                 ].map(([label, val]) => (
                   <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0" }}>

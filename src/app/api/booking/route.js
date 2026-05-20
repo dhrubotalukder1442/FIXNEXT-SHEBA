@@ -22,6 +22,9 @@ export async function POST(req) {
     const address = sanitize(body.address || "");
     const userId = sanitize(body.userId || "");
     const specialty = sanitize(body.specialty || "");
+    // scheduledAt — user এর preferred datetime। ISO string হিসেবে আসে।
+    // null/undefined হলে null রাখি, required না করি যাতে পুরোনো bookings break না করে।
+    const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : null;
 
     if (!userId) {
       return Response.json(
@@ -54,6 +57,7 @@ export async function POST(req) {
       specialty,
       status: "pending",
       createdAt: new Date(),
+      scheduledAt,  // null হলেও store করি — undefined vs null MongoDB তে আলাদা
     };
 
     const client = await clientPromise;
@@ -91,6 +95,7 @@ export async function POST(req) {
       address,
       option,
       specialty,
+      scheduledAt,
       status: "unread",
       createdAt: new Date(),
     }));

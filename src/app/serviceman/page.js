@@ -440,6 +440,7 @@ export default function ServicemanPage() {
                     </div>
                   ) : (
                     <>
+                      {/* Summary row */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                         {[
                           { label: "Total Revenue", value: `৳${transactions.filter(t => t.status === "paid").reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}`, color: "#1D9E75" },
@@ -451,16 +452,50 @@ export default function ServicemanPage() {
                           </div>
                         ))}
                       </div>
-                      {transactions.map((t, i) => (
-                        <div key={i} style={{ background: "#F9FAFB", borderRadius: 10, padding: "11px 13px", marginBottom: 8, border: "1px solid #E5E7EB" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: t.status === "paid" ? "#1D9E75" : "#92400E" }}>৳{(t.amount || 0).toLocaleString()}</span>
-                            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: t.status === "paid" ? "#DCFCE7" : "#FEF3C7", color: t.status === "paid" ? "#166534" : "#92400E" }}>{t.status}</span>
+
+                      {/* Per-transaction cards with booking info */}
+                      {transactions.map((t, i) => {
+                        const isPaid = t.status === "paid";
+                        const bk = t.booking;
+                        return (
+                          <div key={i} style={{ background: "#F9FAFB", borderRadius: 12, marginBottom: 10, border: `1px solid ${isPaid ? "#9FE1CB" : "#FDE68A"}`, overflow: "hidden" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 13px 8px" }}>
+                              <span style={{ fontSize: 14, fontWeight: 700, color: isPaid ? "#1D9E75" : "#92400E" }}>৳{(t.amount || 0).toLocaleString()}</span>
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: isPaid ? "#DCFCE7" : "#FEF3C7", color: isPaid ? "#166534" : "#92400E" }}>
+                                {isPaid ? "✓ Paid" : t.status}
+                              </span>
+                            </div>
+
+                            {/* Booking details — customer ও service clearly দেখাও */}
+                            {bk && (
+                              <div style={{ margin: "0 13px 10px", background: "#fff", borderRadius: 8, padding: "9px 11px", border: "1px solid #E5E7EB" }}>
+                                <div style={{ fontSize: 10, color: "#888780", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Booking details</div>
+                                {[
+                                  ["Service", bk.service],
+                                  ["Customer", bk.name],
+                                  ["Address", bk.address],
+                                ].map(([label, val]) => (
+                                  <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "2px 0" }}>
+                                    <span style={{ color: "#888780" }}>{label}</span>
+                                    <span style={{ fontWeight: 600, color: "#2C2C2A", maxWidth: "60%", textAlign: "right", wordBreak: "break-word" }}>{val || "—"}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div style={{ padding: "0 13px 11px" }}>
+                              <div style={{ fontSize: 10, color: "#B4B2A9", fontFamily: "monospace", wordBreak: "break-all", marginBottom: 2 }}>{t.transactionId}</div>
+                              <div style={{ fontSize: 10, color: "#B4B2A9" }}>
+                                {isPaid && t.paidAt
+                                  ? `Paid: ${new Date(t.paidAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                                  : t.createdAt
+                                  ? `Initiated: ${new Date(t.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                                  : "—"}
+                              </div>
+                            </div>
                           </div>
-                          <div style={{ fontSize: 10, color: "#888780", fontFamily: "monospace", marginBottom: 3, wordBreak: "break-all" }}>{t.transactionId}</div>
-                          <div style={{ fontSize: 10, color: "#B4B2A9" }}>{t.createdAt ? new Date(t.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </>
                   )}
                 </div>
@@ -659,7 +694,18 @@ export default function ServicemanPage() {
                 <StatusBadge status={b.status} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
-                {[["Service", b.service], ["Option", b.option ?? "—"], ["Address", b.address], ["Time", new Date(b.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })]].map(([label, val]) => (
+                {/* scheduledAt আছে কিনা check করি — পুরোনো bookings এ থাকবে না।
+                    থাকলে সেটা দেখাই, না থাকলে createdAt দেখাই। */}
+                {[
+                ["Service", b.service],
+                ["Option", b.option !== undefined ? `Option ${b.option + 1}` : "—"],
+                ["Address", b.address],
+                [b.scheduledAt ? "Scheduled" : "Booked",
+                  b.scheduledAt
+                    ? new Date(b.scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                    : new Date(b.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+                ],
+              ].map(([label, val]) => (
                   <div key={label} style={{ background: "#F9FAFB", borderRadius: 8, padding: "8px 10px" }}>
                     <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "#2C2C2A" }}>{val}</div>

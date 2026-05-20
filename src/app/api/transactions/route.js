@@ -3,16 +3,16 @@ import { ObjectId } from "mongodb";
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/jwt";
 
-// MongoDB Aggregation Pipeline দিয়ে transaction এর সাথে booking details join করি।
-// কেন aggregation? কারণ bookingId string হিসেবে store আছে, তাই $lookup এর আগে
-// $addFields দিয়ে সেটাকে ObjectId তে convert করতে হয়। এটা MongoDB এর একটা
-// common pattern — foreign key string হলে এভাবেই join করতে হয়।
+// Use the MongoDB Aggregation Pipeline to join booking details with the transaction.
+// Why aggregation? Because bookingId is stored as a string, so before using $lookup,
+// we need to convert it to ObjectId using $addFields. This is a common MongoDB pattern —
+// when a foreign key is stored as a string, joins are handled this way.
 function buildPipeline(matchStage) {
   return [
     { $match: matchStage },
     { $sort: { createdAt: -1 } },
 
-    // bookingId (string) → ObjectId convert করো, তারপর bookings collection এ lookup করো
+    // Convert bookingId (string) to ObjectId, then perform a lookup in the bookings collection.
     {
       $addFields: {
         bookingObjectId: { $toObjectId: "$bookingId" },
@@ -27,15 +27,15 @@ function buildPipeline(matchStage) {
       },
     },
 
-    // $lookup সবসময় array return করে। আমরা একটাই booking expect করি, তাই
-    // $first দিয়ে array থেকে প্রথম (একমাত্র) element বের করি।
+    // $lookup always returns an array. Since we expect only one booking,
+// we use $first to extract the first (and only) element from the array.
     {
       $addFields: {
         booking: { $first: "$booking" },
       },
     },
 
-    // শুধু দরকারী fields রাখো — client এ unnecessary data না পাঠানোই ভালো
+    // Keep only the necessary fields — it's better not to send unnecessary data to the client.
     {
       $project: {
         transactionId: 1,
@@ -76,9 +76,9 @@ export async function GET() {
         .toArray();
 
     } else if (payload.role === "serviceman") {
-      // Serviceman এর নিজের bookings খুঁজে সেই bookingId গুলো দিয়ে filter করি।
-      // এই কাজটা একটা aggregation এ করা যেত কিন্তু complexity বাড়ত —
-      // এই দুই-step approach টা পড়তে অনেক সহজ।
+      // Find the serviceman's own bookings and filter using those bookingIds.
+// This could be done in a single aggregation, but it would increase complexity —
+// this two-step approach is much easier to read and maintain.
       const bookings = await db.collection("bookings")
         .find({ servicemanId: payload.id }, { projection: { _id: 1 } })
         .toArray();
