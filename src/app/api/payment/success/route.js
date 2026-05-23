@@ -19,10 +19,31 @@ export async function POST(req) {
       );
 
       if (transaction?.bookingId) {
-        await db.collection("bookings").updateOne(
+        const booking = await db.collection("bookings").findOneAndUpdate(
           { _id: new ObjectId(transaction.bookingId) },
-          { $set: { paymentStatus: "paid" } }
+          { $set: { paymentStatus: "paid" } },
+          { returnDocument: "after" }
         );
+
+        // Payment confirm হলে user কে email পাঠাই।
+        // try-catch আলাদা রাখি — email fail করলে payment flow break হবে না।
+        // Email failure টা critical না, payment টা critical।
+        if (booking && transaction?.userEmail) {
+          try {
+            await sendBookingConfirmation({
+              to: transaction.userEmail,
+              name: booking.name,
+              service: booking.service,
+              option: booking.option,
+              address: booking.address,
+              scheduledAt: booking.scheduledAt,
+              amount: transaction.amount,
+              transactionId: tran_id,
+            });
+          } catch (emailErr) {
+            console.error("Confirmation email failed:", emailErr);
+          }
+        }
       }
     }
 

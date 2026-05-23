@@ -2,6 +2,7 @@ import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { sanitize, isValidPhone } from "@/lib/validate";
 import Pusher from "pusher";
+import { sendBookingAccepted } from "@/lib/mailer";
 
 const pusher = new Pusher({
   appId: process.env.PUSHER_APP_ID,
@@ -211,6 +212,35 @@ export async function PATCH(req) {
       { _id: new ObjectId(id) },
       { $set: updateData }
     );
+
+    // Serviceman booking accept করলে user কে email পাঠাই।
+    // booking আর serviceman data একসাথে fetch করি — দুটো আলাদা call করা যেত
+    // কিন্তু এটা cleaner। Email failure টা response block করবে না।
+    if (status === "accepted") {
+      try {
+        const booking = await db.collection("bookings").findOne({ _id: new ObjectId(id) });
+        const sm = servicemanId
+          ? await db.collection("users").findOne({ _id: new ObjectId(servicemanId) })
+          : null;
+        const userDoc = booking?.userId
+          ? await db.collection("users").findOne({ _id: new ObjectId(booking.userId) })
+          : null;
+
+        if (booking && userDoc?.email) {
+          await sendBookingAccepted({
+            to: userDoc.email,
+            name: booking.name,
+            service: booking.service,
+            address: booking.address,
+            scheduledAt: booking.scheduledAt,
+            servicemanName: sm?.name || "Our Serviceman",
+            servicemanPhone: sm?.phone || null,
+          });
+        }
+      } catch (emailErr) {
+        console.error("Accepted email failed:", emailErr);
+      }
+    }
 
     // Notify user when booking is completed
     if (status === "completed") {

@@ -63,6 +63,9 @@ export async function POST(req) {
         transactionId,
         bookingId,
         userId: payload.id,
+        // userEmail store করি যাতে payment/success route এ
+        // user এর email জানতে আরেকটা DB call না করতে হয়।
+        userEmail: payload.email,
         amount: Number(booking.price) || 500,
         status: "pending",
         createdAt: new Date(),

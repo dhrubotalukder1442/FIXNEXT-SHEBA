@@ -22,9 +22,22 @@ function SuccessContent() {
             Transaction ID: <strong style={{ color: "#2C2C2A" }}>{tran_id}</strong>
           </div>
         )}
-        <button onClick={() => router.push("/")} style={{ width: "100%", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-          Back to Home
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* PDF download — window.open দিয়ে করি কারণ এটা binary response।
+              fetch দিয়ে করলে extra blob handling লাগত। window.open সহজ এবং
+              browser নিজেই download handle করে। */}
+          {tran_id && (
+            <button
+              onClick={() => window.open(`/api/invoice/${tran_id}`, "_blank")}
+              style={{ width: "100%", background: "#0A2540", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+            >
+              📄 Download Invoice
+            </button>
+          )}
+          <button onClick={() => router.push("/")} style={{ width: "100%", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            Back to Home
+          </button>
+        </div>
       </div>
     </main>
   );
