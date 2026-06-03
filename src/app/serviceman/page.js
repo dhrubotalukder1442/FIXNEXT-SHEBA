@@ -2,6 +2,8 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Pusher from "pusher-js";
+import { translations, getLang, setLang } from "@/lib/translations";
+import LanguageToggle from "@/components/LanguageToggle";
 
 const StatusBadge = ({ status }) => {
   const map = {
@@ -54,6 +56,57 @@ export default function ServicemanPage() {
   const [toastMsg, setToastMsg] = useState(null);
   const [rejectingId, setRejectingId] = useState(null);
 
+  // ✅ Support / Customer Care chat state
+  const [showSupport, setShowSupport] = useState(false);
+  const [supportMessages, setSupportMessages] = useState([]);
+  const [supportInput, setSupportInput] = useState("");
+  const [supportSending, setSupportSending] = useState(false);
+  const [supportUnread, setSupportUnread] = useState(0);
+  const supportEndRef = useRef(null);
+  const [lang, setLangState] = useState("en");
+
+  useEffect(() => { setLangState(getLang()); }, []);
+  const t = translations[lang];
+  const handleToggleLang = () => {
+    const next = lang === "en" ? "bn" : "en";
+    setLangState(next);
+    setLang(next);
+  };
+
+  // ✅ Support chat functions
+  const loadSupportMessages = async () => {
+    if (!user) return;
+    try {
+      const r = await fetch("/api/support");
+      const d = await r.json();
+      if (d.success) { setSupportMessages(d.data); setSupportUnread(0); }
+    } catch {}
+  };
+
+  const sendSupportMessage = async () => {
+    if (!supportInput.trim() || supportSending) return;
+    setSupportSending(true);
+    try {
+      const r = await fetch("/api/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: supportInput.trim() }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setSupportMessages(prev => [...prev, d.data]);
+        setSupportInput("");
+        setTimeout(() => supportEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      }
+    } catch {} finally { setSupportSending(false); }
+  };
+
+  const openSupport = () => {
+    setShowSupport(true);
+    loadSupportMessages();
+    setTimeout(() => supportEndRef.current?.scrollIntoView({ behavior: "smooth" }), 200);
+  };
+
   // ✅ Toast notification helper
   const showToast = (msg, type = "success") => {
     setToastMsg({ msg, type });
@@ -86,7 +139,7 @@ export default function ServicemanPage() {
       const fullData = await fullRes.json();
       if (fullData.success) {
         setProfile(fullData.data);
-        setIsOnline(fullData.data.isOnline !== false); // default true
+        setIsOnline(fullData.data.isOnline !== false);
       }
     }
   };
@@ -137,10 +190,9 @@ export default function ServicemanPage() {
 
     const channel = pusher.subscribe(`serviceman-${user.id}`);
 
-    // নতুন booking notification আসলে
     channel.bind("new-booking", (data) => {
       setNotifications(prev => [data, ...prev]);
-      showToast(`New booking: ${data.name} — ${data.service}`, "info");
+      showToast(`${t.newBadge}: ${data.name} — ${data.service}`, "info");
     });
 
     pusherRef.current = pusher;
@@ -159,7 +211,7 @@ export default function ServicemanPage() {
         body: JSON.stringify({ id, status }),
       });
       fetchBookings(user.id);
-      showToast(`Booking marked as ${status}`);
+      showToast(`${t.booking} ${status}`);
     } catch (err) { console.error(err); }
   };
 
@@ -178,7 +230,7 @@ export default function ServicemanPage() {
       });
       setNotifications(prev => prev.filter(notif => notif._id !== n._id));
       fetchBookings(user.id);
-      showToast("Booking accepted!");
+      showToast(t.accepted + "!");
     } catch (err) { console.error(err); }
   };
 
@@ -192,7 +244,7 @@ export default function ServicemanPage() {
         body: JSON.stringify({ id: n._id }),
       });
       setNotifications(prev => prev.filter(notif => notif._id !== n._id));
-      showToast("Booking rejected", "error");
+      showToast(t.rejected || "Rejected", "error");
     } catch (err) { console.error(err); }
     finally { setRejectingId(null); }
   };
@@ -207,9 +259,9 @@ export default function ServicemanPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isOnline: newStatus }),
       });
-      showToast(newStatus ? "You are now Online" : "You are now Offline");
+      showToast(newStatus ? `${t.online}` : `${t.offline}`);
     } catch (err) {
-      setIsOnline(!newStatus); // revert on error
+      setIsOnline(!newStatus);
       console.error(err);
     }
   };
@@ -232,7 +284,7 @@ export default function ServicemanPage() {
       if (data.success) {
         setProfile(prev => ({ ...prev, ...data.user }));
         setEditMode(false);
-        showToast("Profile updated!");
+        showToast(t.profile + " updated!");
       } else {
         alert(data.message || "Failed to update profile");
       }
@@ -257,7 +309,7 @@ export default function ServicemanPage() {
         const data = await res.json();
         if (data.success) {
           setProfile(prev => ({ ...prev, avatar: base64 }));
-          showToast("Avatar updated!");
+          showToast(t.profile + " updated!");
         } else {
           alert("Failed to upload image");
         }
@@ -309,9 +361,9 @@ export default function ServicemanPage() {
   const formatDate = (date) => new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 
   const tabs = [
-    { key: "profile", label: "Profile" },
-    { key: "transactions", label: "Payments" },
-    { key: "messages", label: "Messages" },
+    { key: "profile", label: t.profile },
+    { key: "transactions", label: t.payments },
+    { key: "messages", label: t.messages },
   ];
 
   return (
@@ -336,18 +388,18 @@ export default function ServicemanPage() {
           <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 300, background: "#fff", display: "flex", flexDirection: "column", boxShadow: "-4px 0 20px rgba(0,0,0,0.1)" }}>
 
             <div style={{ background: "#0A2540", padding: "1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>My Account</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{t.myAccount}</div>
               <button onClick={() => setShowSidebar(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9AAFC7" }}><CloseIcon /></button>
             </div>
 
             <div style={{ display: "flex", borderBottom: "1px solid #E5E7EB" }}>
-              {tabs.map(t => (
-                <button key={t.key} onClick={() => {
-                  setSidebarTab(t.key);
-                  if (t.key === "messages" && user) fetchAllMessages(user.id);
-                  if (t.key === "transactions") fetchTransactions();
-                }} style={{ flex: 1, padding: "10px 4px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: sidebarTab === t.key ? "#F0FBF6" : "#fff", color: sidebarTab === t.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === t.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
-                  {t.label}
+              {tabs.map(tab => (
+                <button key={tab.key} onClick={() => {
+                  setSidebarTab(tab.key);
+                  if (tab.key === "messages" && user) fetchAllMessages(user.id);
+                  if (tab.key === "transactions") fetchTransactions();
+                }} style={{ flex: 1, padding: "10px 4px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", background: sidebarTab === tab.key ? "#F0FBF6" : "#fff", color: sidebarTab === tab.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === tab.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
+                  {tab.label}
                 </button>
               ))}
             </div>
@@ -382,33 +434,35 @@ export default function ServicemanPage() {
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 10 }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: isOnline ? "#22C55E" : "#9CA3AF" }} />
                       <span style={{ fontSize: 12, color: isOnline ? "#166534" : "#888780", fontWeight: 600 }}>
-                        {isOnline ? "Online" : "Offline"}
+                        {isOnline ? t.online : t.offline}
                       </span>
                     </div>
 
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#2C2C2A", marginTop: 6 }}>{user?.name}</div>
                     <div style={{ fontSize: 12, color: "#1D9E75", marginTop: 2 }}>{profile?.specialty || "Serviceman"}</div>
                     {profile?.rating > 0 && (
-                      <div style={{ fontSize: 12, color: "#888780", marginTop: 4 }}>⭐ {profile.rating.toFixed(1)} ({profile.totalReviews} reviews)</div>
+                      <div style={{ fontSize: 12, color: "#888780", marginTop: 4 }}>
+                        ⭐ {profile.rating.toFixed(1)} ({profile.totalReviews} {t.reviews})
+                      </div>
                     )}
                   </div>
 
                   {!editMode ? (
                     <div>
-                      {[["Email", user?.email], ["Phone", profile?.phone || "Not set"], ["Specialty", profile?.specialty || "Not set"], ["Bio", profile?.bio || "Not set"]].map(([label, val]) => (
+                      {[[t.email, user?.email], [t.phone, profile?.phone || t.notSet], [t.specialty, profile?.specialty || t.notSet], [t.bio, profile?.bio || t.notSet]].map(([label, val]) => (
                         <div key={label} style={{ background: "#F9FAFB", borderRadius: 10, padding: "10px 14px", marginBottom: 8, border: "1px solid #E5E7EB" }}>
                           <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
                           <div style={{ fontSize: 13, fontWeight: 600, color: "#2C2C2A", wordBreak: "break-word" }}>{val}</div>
                         </div>
                       ))}
                       <button onClick={() => { setEditPhone(profile?.phone || ""); setEditSpecialty(profile?.specialty || ""); setEditBio(profile?.bio || ""); setEditMode(true); }} style={{ width: "100%", background: "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}>
-                        Edit Profile
+                        {t.edit}
                       </button>
                     </div>
                   ) : (
                     <div>
-                      <label style={{ fontSize: 11, color: "#888780", display: "block", marginBottom: 4 }}>Phone</label>
-                      <input placeholder="Phone number" value={editPhone} onChange={e => setEditPhone(e.target.value)} style={inputStyle} />
+                      <label style={{ fontSize: 11, color: "#888780", display: "block", marginBottom: 4 }}>{t.editPhone}</label>
+                      <input placeholder={t.phonePlaceholder} value={editPhone} onChange={e => setEditPhone(e.target.value)} style={inputStyle} />
                       <label style={{ fontSize: 11, color: "#888780", display: "block", marginBottom: 4 }}>Specialty</label>
                       <select value={editSpecialty} onChange={e => setEditSpecialty(e.target.value)} style={inputStyle}>
                         <option value="">Select specialty</option>
@@ -417,10 +471,10 @@ export default function ServicemanPage() {
                         <option value="Ac">❄️ AC Service</option>
                       </select>
                       <label style={{ fontSize: 11, color: "#888780", display: "block", marginBottom: 4 }}>Bio</label>
-                      <textarea placeholder="Tell customers about yourself" value={editBio} onChange={e => setEditBio(e.target.value)} style={{ ...inputStyle, resize: "none", height: 80 }} />
+                      <textarea placeholder={t.tellCustomers} value={editBio} onChange={e => setEditBio(e.target.value)} style={{ ...inputStyle, resize: "none", height: 80 }} />
                       <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                         <button onClick={handleSaveProfile} disabled={saveLoading} style={{ flex: 1, background: saveLoading ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: saveLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
-                          {saveLoading ? "Saving..." : "Save"}
+                          {saveLoading ? t.saving : "Save"}
                         </button>
                         <button onClick={() => setEditMode(false)} style={{ flex: 1, background: "transparent", color: "#888780", border: "1px solid #E5E7EB", borderRadius: 10, padding: "11px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
                       </div>
@@ -433,18 +487,17 @@ export default function ServicemanPage() {
               {sidebarTab === "transactions" && (
                 <div>
                   {txLoading ? (
-                    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>Loading...</div>
+                    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>{t.loading}</div>
                   ) : transactions.length === 0 ? (
                     <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
                       <div style={{ fontSize: 32, marginBottom: 8 }}>💳</div>No transactions yet
                     </div>
                   ) : (
                     <>
-                      {/* Summary row */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                         {[
-                          { label: "Total Revenue", value: `৳${transactions.filter(t => t.status === "paid").reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}`, color: "#1D9E75" },
-                          { label: "Transactions", value: transactions.length, color: "#0A2540" },
+                          { label: t.totalRevenue, value: `৳${transactions.filter(tx => tx.status === "paid").reduce((s, tx) => s + (tx.amount || 0), 0).toLocaleString()}`, color: "#1D9E75" },
+                          { label: t.transactions, value: transactions.length, color: "#0A2540" },
                         ].map(s => (
                           <div key={s.label} style={{ background: "#F9FAFB", borderRadius: 10, padding: "10px 12px", border: "1px solid #E5E7EB", textAlign: "center" }}>
                             <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -453,27 +506,25 @@ export default function ServicemanPage() {
                         ))}
                       </div>
 
-                      {/* Per-transaction cards with booking info */}
-                      {transactions.map((t, i) => {
-                        const isPaid = t.status === "paid";
-                        const bk = t.booking;
+                      {transactions.map((tx, i) => {
+                        const isPaid = tx.status === "paid";
+                        const bk = tx.booking;
                         return (
                           <div key={i} style={{ background: "#F9FAFB", borderRadius: 12, marginBottom: 10, border: `1px solid ${isPaid ? "#9FE1CB" : "#FDE68A"}`, overflow: "hidden" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 13px 8px" }}>
-                              <span style={{ fontSize: 14, fontWeight: 700, color: isPaid ? "#1D9E75" : "#92400E" }}>৳{(t.amount || 0).toLocaleString()}</span>
+                              <span style={{ fontSize: 14, fontWeight: 700, color: isPaid ? "#1D9E75" : "#92400E" }}>৳{(tx.amount || 0).toLocaleString()}</span>
                               <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 5, background: isPaid ? "#DCFCE7" : "#FEF3C7", color: isPaid ? "#166534" : "#92400E" }}>
-                                {isPaid ? "✓ Paid" : t.status}
+                                {isPaid ? "✓ Paid" : tx.status}
                               </span>
                             </div>
 
-                            {/* Booking details — customer ও service clearly দেখাও */}
                             {bk && (
                               <div style={{ margin: "0 13px 10px", background: "#fff", borderRadius: 8, padding: "9px 11px", border: "1px solid #E5E7EB" }}>
-                                <div style={{ fontSize: 10, color: "#888780", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Booking details</div>
+                                <div style={{ fontSize: 10, color: "#888780", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{t.bookingDetails}</div>
                                 {[
-                                  ["Service", bk.service],
-                                  ["Customer", bk.name],
-                                  ["Address", bk.address],
+                                  [t.service, bk.service],
+                                  [t.customer, bk.name],
+                                  [t.address, bk.address],
                                 ].map(([label, val]) => (
                                   <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "2px 0" }}>
                                     <span style={{ color: "#888780" }}>{label}</span>
@@ -484,12 +535,12 @@ export default function ServicemanPage() {
                             )}
 
                             <div style={{ padding: "0 13px 11px" }}>
-                              <div style={{ fontSize: 10, color: "#B4B2A9", fontFamily: "monospace", wordBreak: "break-all", marginBottom: 2 }}>{t.transactionId}</div>
+                              <div style={{ fontSize: 10, color: "#B4B2A9", fontFamily: "monospace", wordBreak: "break-all", marginBottom: 2 }}>{tx.transactionId}</div>
                               <div style={{ fontSize: 10, color: "#B4B2A9" }}>
-                                {isPaid && t.paidAt
-                                  ? `Paid: ${new Date(t.paidAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
-                                  : t.createdAt
-                                  ? `Initiated: ${new Date(t.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                                {isPaid && tx.paidAt
+                                  ? `Paid: ${new Date(tx.paidAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                                  : tx.createdAt
+                                  ? `Initiated: ${new Date(tx.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
                                   : "—"}
                               </div>
                             </div>
@@ -555,10 +606,11 @@ export default function ServicemanPage() {
       <div style={{ background: "#0A2540", padding: "1.25rem 1.5rem" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Serviceman Panel</div>
-            <div style={{ fontSize: 12, color: "#5DCAA5", marginTop: 2 }}>Welcome, {user?.name}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>{t.servicemanPanel}</div>
+            <div style={{ fontSize: 12, color: "#5DCAA5", marginTop: 2 }}>{t.welcome} {user?.name}</div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <LanguageToggle lang={lang} onToggle={handleToggleLang} />
 
             {/* ✅ Online/Offline Toggle */}
             <button
@@ -604,8 +656,8 @@ export default function ServicemanPage() {
           <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 10, padding: "10px 14px", marginBottom: "1rem", display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 16 }}>⚠️</span>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>You are currently Offline</div>
-              <div style={{ fontSize: 11, color: "#92400E" }}>You won't receive new booking notifications</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>{t.offlineWarning}</div>
+              <div style={{ fontSize: 11, color: "#92400E" }}>{t.offlineWarningSub}</div>
             </div>
           </div>
         )}
@@ -623,17 +675,16 @@ export default function ServicemanPage() {
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#2C2C2A" }}>{n.name}</div>
                     <div style={{ fontSize: 12, color: "#888780", marginTop: 2 }}>{n.phone}</div>
                   </div>
-                  <div style={{ fontSize: 11, background: "#1D9E75", color: "#fff", borderRadius: 6, padding: "3px 8px" }}>New</div>
+                  <div style={{ fontSize: 11, background: "#1D9E75", color: "#fff", borderRadius: 6, padding: "3px 8px" }}>{t.newBadge}</div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
-                  {[["Service", n.service], ["Option", n.option ?? "—"], ["Address", n.address]].map(([label, val]) => (
+                  {[[t.service, n.service], [t.option, n.option ?? "—"], [t.address, n.address]].map(([label, val]) => (
                     <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "8px 10px" }}>
                       <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
                       <div style={{ fontSize: 12, fontWeight: 600, color: "#2C2C2A" }}>{val}</div>
                     </div>
                   ))}
                 </div>
-                {/* ✅ Accept + Reject buttons */}
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
                     onClick={() => handleAcceptNotification(n)}
@@ -657,10 +708,10 @@ export default function ServicemanPage() {
         {/* ── Stats ── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: "1.25rem" }}>
           {[
-            { label: "Total", value: counts.total, color: "#0A2540" },
-            { label: "Pending", value: counts.pending, color: "#92400E" },
-            { label: "Accepted", value: counts.accepted, color: "#1E40AF" },
-            { label: "Completed", value: counts.completed, color: "#166534" },
+            { label: t.total, value: counts.total, color: "#0A2540" },
+            { label: t.pending, value: counts.pending, color: "#92400E" },
+            { label: t.accepted, value: counts.accepted, color: "#1E40AF" },
+            { label: t.completed, value: counts.completed, color: "#166534" },
           ].map(s => (
             <div key={s.label} style={{ background: "#fff", borderRadius: 12, padding: "12px", border: "1px solid #E5E7EB", textAlign: "center" }}>
               <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -673,7 +724,7 @@ export default function ServicemanPage() {
         <div style={{ display: "flex", gap: 6, marginBottom: "1rem", flexWrap: "wrap" }}>
           {["all", "pending", "accepted", "completed"].map(f => (
             <button key={f} onClick={() => setFilter(f)} style={{ padding: "6px 14px", borderRadius: 999, fontSize: 11, fontWeight: 600, border: "1px solid #E5E7EB", cursor: "pointer", fontFamily: "inherit", background: filter === f ? "#1D9E75" : "#fff", color: filter === f ? "#fff" : "#888780", textTransform: "capitalize" }}>
-              {f === "all" ? `All (${counts.total})` : `${f} (${counts[f]})`}
+              {f === "all" ? `${t.all} (${counts.total})` : `${t[f] || f} (${counts[f]})`}
             </button>
           ))}
         </div>
@@ -682,7 +733,7 @@ export default function ServicemanPage() {
         {loading ? (
           <div style={{ textAlign: "center", color: "#888780", padding: "2rem", fontSize: 13 }}>Loading...</div>
         ) : filtered.length === 0 ? (
-          <div style={{ textAlign: "center", color: "#888780", padding: "2rem", fontSize: 13 }}>No bookings found</div>
+          <div style={{ textAlign: "center", color: "#888780", padding: "2rem", fontSize: 13 }}>{t.noBookingsFound}</div>
         ) : (
           filtered.map((b, i) => (
             <div key={i} style={{ background: "#fff", borderRadius: 12, border: "1px solid #E5E7EB", padding: "14px", marginBottom: 10 }}>
@@ -694,18 +745,16 @@ export default function ServicemanPage() {
                 <StatusBadge status={b.status} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
-                {/* scheduledAt আছে কিনা check করি — পুরোনো bookings এ থাকবে না।
-                    থাকলে সেটা দেখাই, না থাকলে createdAt দেখাই। */}
                 {[
-                ["Service", b.service],
-                ["Option", b.option !== undefined ? `Option ${b.option + 1}` : "—"],
-                ["Address", b.address],
-                [b.scheduledAt ? "Scheduled" : "Booked",
-                  b.scheduledAt
-                    ? new Date(b.scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
-                    : new Date(b.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
-                ],
-              ].map(([label, val]) => (
+                  [t.service, b.service],
+                  [t.option, b.option !== undefined ? `Option ${b.option + 1}` : "—"],
+                  [t.address, b.address],
+                  [b.scheduledAt ? t.scheduled : t.booked,
+                    b.scheduledAt
+                      ? new Date(b.scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                      : new Date(b.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+                  ],
+                ].map(([label, val]) => (
                   <div key={label} style={{ background: "#F9FAFB", borderRadius: 8, padding: "8px 10px" }}>
                     <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "#2C2C2A" }}>{val}</div>
@@ -729,13 +778,108 @@ export default function ServicemanPage() {
                   </>
                 )}
                 {b.status === "completed" && (
-                  <div style={{ flex: 1, textAlign: "center", fontSize: 12, color: "#166534", fontWeight: 600, padding: "10px" }}>✓ Completed</div>
+                  <div style={{ flex: 1, textAlign: "center", fontSize: 12, color: "#166534", fontWeight: 600, padding: "10px" }}>{"✓ " + t.completed}</div>
                 )}
               </div>
             </div>
           ))
         )}
       </div>
+
+      {/* ✅ Customer Care floating button — serviceman side */}
+      {user && (
+        <>
+          <button
+            onClick={openSupport}
+            style={{
+              position: "fixed", bottom: 24, right: 24, zIndex: 999,
+              width: 52, height: 52, borderRadius: "50%",
+              background: "#1D9E75", border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 4px 16px rgba(29,158,117,0.4)",
+            }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+            </svg>
+            {supportUnread > 0 && (
+              <span style={{ position: "absolute", top: 0, right: 0, width: 18, height: 18, background: "#DC2626", borderRadius: "50%", fontSize: 10, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {supportUnread}
+              </span>
+            )}
+          </button>
+
+          {showSupport && (
+            <div style={{ position: "fixed", bottom: 88, right: 24, zIndex: 1000, width: 320, background: "#fff", borderRadius: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", border: "1px solid #E5E7EB", display: "flex", flexDirection: "column", maxHeight: 420 }}>
+              <div style={{ background: "#0A2540", borderRadius: "16px 16px 0 0", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round">
+                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Customer Support</div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>FixNext Sheba</div>
+                  </div>
+                </div>
+                <button onClick={() => setShowSupport(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.7)", padding: 4 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              <div style={{ 
+                flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, minHeight: 200, maxHeight: 280, background: "#ECE5DD"}}>
+                {supportMessages.length === 0 ? (
+                  <div style={{ textAlign: "center", color: "#040400", fontSize: 12, marginTop: 40 }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>💬</div>
+                    <div>How can we help you?</div>
+                    <div style={{ fontSize: 11, marginTop: 4 }}>Send a message to our support team</div>
+                  </div>
+                ) : (
+                  supportMessages.map((msg, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: msg.senderRole === "admin" ? "flex-start" : "flex-end" }}>
+                      <div style={{
+                        maxWidth: "75%", padding: "8px 12px",
+                        borderRadius: msg.senderRole === "admin" ? "4px 12px 12px 12px" : "12px 4px 12px 12px",
+                        background: msg.senderRole === "admin" ? "#F0F2F5" : "#1D9E75",
+                        color: msg.senderRole === "admin" ? "#2C2C2A" : "#fff",
+                        fontSize: 12, lineHeight: 1.5,
+                      }}>
+                        {msg.senderRole === "admin" && <div style={{ fontSize: 10, fontWeight: 700, color: "#1D9E75", marginBottom: 3 }}>Support Team</div>}
+                        {msg.message}
+                        <div style={{ fontSize: 10, opacity: 0.6, marginTop: 3, textAlign: "right" }}>
+                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+                <div ref={supportEndRef} />
+              </div>
+              <div style={{ padding: "10px 14px", borderTop: "1px solid #E5E7EB", display: "flex", gap: 8 }}>
+                <input
+                  value={supportInput}
+                  onChange={e => setSupportInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && sendSupportMessage()}
+                  placeholder="Type a message..."
+                  style={{ flex: 1, padding: "8px 12px", border: "1px solid #E5E7EB",color: "#040400", borderRadius: 20, fontSize: 12, outline: "none", fontFamily: "inherit" }}
+                />
+                <button
+                  onClick={sendSupportMessage}
+                  disabled={!supportInput.trim() || supportSending}
+                  style={{ width: 36, height: 36, borderRadius: "50%", background: supportInput.trim() ? "#1D9E75" : "#E5E7EB", border: "none", cursor: supportInput.trim() ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={supportInput.trim() ? "#fff" : "#888780"} strokeWidth="2.5" strokeLinecap="round">
+                    <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </main>
   );
 }

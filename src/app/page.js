@@ -2,6 +2,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { services } from "../data/services";
+import { translations, getLang, setLang } from "@/lib/translations";
+import LanguageToggle from "@/components/LanguageToggle";
 
 const CalendarIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -73,6 +75,65 @@ export default function Home() {
   const [txLoading, setTxLoading] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [lang, setLangState] = useState("en");
+
+  // ✅ Support / Customer Care chat state
+  const [showSupport, setShowSupport] = useState(false);
+  const [supportMessages, setSupportMessages] = useState([]);
+  const [supportInput, setSupportInput] = useState("");
+  const [supportSending, setSupportSending] = useState(false);
+  const [supportUnread, setSupportUnread] = useState(0);
+  const supportEndRef = useRef(null);
+
+  // Load saved language on mount
+  useEffect(() => {
+    setLangState(getLang());
+  }, []);
+
+  const t = translations[lang];
+
+  const handleToggleLang = () => {
+    const next = lang === "en" ? "bn" : "en";
+    setLangState(next);
+    setLang(next);
+  };
+
+  // ✅ Support chat functions
+  const loadSupportMessages = async () => {
+    if (!user) return;
+    try {
+      const r = await fetch("/api/support");
+      const d = await r.json();
+      if (d.success) {
+        setSupportMessages(d.data);
+        setSupportUnread(0);
+      }
+    } catch {}
+  };
+
+  const sendSupportMessage = async () => {
+    if (!supportInput.trim() || supportSending) return;
+    setSupportSending(true);
+    try {
+      const r = await fetch("/api/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: supportInput.trim() }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setSupportMessages(prev => [...prev, d.data]);
+        setSupportInput("");
+        setTimeout(() => supportEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      }
+    } catch {} finally { setSupportSending(false); }
+  };
+
+  const openSupport = () => {
+    setShowSupport(true);
+    loadSupportMessages();
+    setTimeout(() => supportEndRef.current?.scrollIntoView({ behavior: "smooth" }), 200);
+  };
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -242,9 +303,9 @@ export default function Home() {
 
   // Cancel booking handler
   const handleCancelBooking = async (bookingId) => {
-    if (!confirm("Are you sure you want to cancel this booking?")) return;
+    if (!confirm(t.cancelConfirm)) return;
     try {
-      const res = await fetch("/api/bookings", {
+      const res = await fetch("/api/booking", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: bookingId, status: "cancelled" }),
@@ -380,11 +441,11 @@ export default function Home() {
   const formatDate = (date) => new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 
   const tabs = [
-    { key: "profile", label: "Profile" },
-    { key: "history", label: "History" },
-    { key: "transactions", label: "Payments" },
-    { key: "notifications", label: unreadCount > 0 ? `Notif (${unreadCount})` : "Notif" },
-    { key: "messages", label: "Messages" },
+    { key: "profile", label: t.profile },
+    { key: "history", label: t.history },
+    { key: "transactions", label: t.payments },
+    { key: "notifications", label: unreadCount > 0 ? `${t.notifHeader} (${unreadCount})` : t.notifHeader },
+    { key: "messages", label: t.messages },
   ];
 
   return (
@@ -410,11 +471,11 @@ export default function Home() {
               ))}
             </div>
             <div style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "#1D9E75", marginBottom: "1rem", minHeight: 18 }}>
-              {rating > 0 ? ["", "Poor", "Fair", "Good", "Very Good", "Excellent!"][rating] : ""}
+              {rating > 0 ? ["", t.poor, t.fair, t.good, t.veryGood, t.excellent][rating] : ""}
             </div>
-            <textarea placeholder="Share your experience (optional)" value={comment} onChange={(e) => setComment(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E7EB", borderRadius: 12, fontSize: 13, fontFamily: "'Sora', sans-serif", color: "#2C2C2A", background: "#FAFAFA", outline: "none", boxSizing: "border-box", resize: "none", height: 80, marginBottom: "1.25rem" }} />
+            <textarea placeholder={t.shareExperience} value={comment} onChange={(e) => setComment(e.target.value)} style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E7EB", borderRadius: 12, fontSize: 13, fontFamily: "'Sora', sans-serif", color: "#2C2C2A", background: "#FAFAFA", outline: "none", boxSizing: "border-box", resize: "none", height: 80, marginBottom: "1.25rem" }} />
             <button onClick={handleSubmitReview} disabled={reviewLoading || rating === 0} style={{ width: "100%", background: rating === 0 ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 14, padding: "14px", fontSize: 14, fontWeight: 700, cursor: rating === 0 ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 10 }}>
-              {reviewLoading ? "Submitting..." : "Submit Review"}
+              {reviewLoading ? t.submitting : t.submitReview}
             </button>
             <button onClick={() => setShowReviewPopup(false)} style={{ width: "100%", background: "transparent", border: "none", color: "#B4B2A9", fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 4 }}>Skip for now</button>
           </div>
@@ -466,7 +527,7 @@ export default function Home() {
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#2C2C2A", marginTop: 10 }}>{user?.name}</div>
                     <div style={{ fontSize: 11, color: "#888780", marginTop: 2 }}>{user?.email}</div>
                   </div>
-                  {[["Name", user?.name], ["Email", user?.email], ["Role", user?.role]].map(([label, val]) => (
+                  {[[t.name, user?.name], [t.email, user?.email], [t.role, user?.role]].map(([label, val]) => (
                     <div key={label} style={{ background: "#F9FAFB", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
                       <div style={{ fontSize: 10, color: "#888780", marginBottom: 2 }}>{label}</div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: "#2C2C2A" }}>{val}</div>
@@ -537,7 +598,7 @@ export default function Home() {
                           ৳{transactions.filter(t => t.status === "paid").reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
                         </div>
                         <div style={{ fontSize: 11, color: "#888780", marginTop: 4 }}>
-                          {transactions.filter(t => t.status === "paid").length} successful payment(s)
+                          {transactions.filter(t => t.status === "paid").length} ${t.successfulPayments}
                         </div>
                       </div>
 
@@ -566,10 +627,10 @@ export default function Home() {
                                   Booking details
                                 </div>
                                 {[
-                                  ["Service", bk.service],
-                                  ["Package", bk.option !== undefined ? `Option ${bk.option + 1}` : "—"],
-                                  ["Customer", bk.name],
-                                  ["Address", bk.address],
+                                  [t.service, bk.service],
+                                  [t.package, bk.option !== undefined ? `Option ${bk.option + 1}` : "—"],
+                                  [t.customer, bk.name],
+                                  [t.address, bk.address],
                                 ].map(([label, val]) => (
                                   <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "2px 0" }}>
                                     <span style={{ color: "#888780" }}>{label}</span>
@@ -673,7 +734,7 @@ export default function Home() {
               )}
             </div>
             <div style={{ padding: "1rem", borderTop: "1px solid #E5E7EB" }}>
-              <button onClick={handleLogout} style={{ width: "100%", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Logout</button>
+              <button onClick={handleLogout} style={{ width: "100%", background: "#FFF5F5", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{t.logout}</button>
             </div>
           </div>
         </div>
@@ -689,14 +750,14 @@ export default function Home() {
             </div>
             <div style={{ background: "#F0FBF6", border: "1px solid #9FE1CB", borderRadius: 10, padding: "10px 14px", marginBottom: "1.25rem" }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#0F6E56", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Order Summary</div>
-              {[["Service", `${service.icon} ${service.title}`], ["Package", service?.options[selectedOption]?.name], ["Price", service?.options[selectedOption]?.price]].map(([label, val]) => (
+              {[[t.service, `${service.icon} ${service.title}`], ["Package", service?.options[selectedOption]?.name], [t.price, service?.options[selectedOption]?.price]].map(([label, val]) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0" }}>
                   <span style={{ color: "#0F6E56" }}>{label}</span>
                   <span style={{ fontWeight: 600, color: "#2C2C2A" }}>{val}</span>
                 </div>
               ))}
               <div style={{ borderTop: "1px solid #9FE1CB", marginTop: 8, paddingTop: 8 }}>
-                {[["Name", name], ["Phone", phone], ["Address", address], ["Scheduled", scheduledAt ? new Date(scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"]].map(([label, val]) => (
+                {[[t.name, name], [t.phone, phone], ["Address", address], [t.scheduled, scheduledAt ? new Date(scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"]].map(([label, val]) => (
                   <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "2px 0" }}>
                     <span style={{ color: "#0F6E56" }}>{label}</span>
                     <span style={{ fontWeight: 600, color: "#2C2C2A", maxWidth: "60%", textAlign: "right", wordBreak: "break-word" }}>{val}</span>
@@ -705,7 +766,7 @@ export default function Home() {
               </div>
             </div>
             <button onClick={handleConfirmBooking} disabled={loading} style={{ width: "100%", background: loading ? "#B4B2A9" : "#1D9E75", color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 14, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit", marginBottom: 8 }}>
-              {loading ? "Booking..." : "Yes, Confirm Booking"}
+              {loading ? "Booking..." : t.yesConfirm}
             </button>
             <button onClick={() => setShowModal(false)} style={{ width: "100%", background: "transparent", border: "1px solid #E5E7EB", borderRadius: 12, padding: "11px", fontSize: 13, color: "#5F5E5A", cursor: "pointer", fontFamily: "inherit" }}>Go back & edit</button>
           </div>
@@ -730,6 +791,7 @@ export default function Home() {
           </div>
           {user ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <LanguageToggle lang={lang} onToggle={handleToggleLang} />
               <button onClick={() => handleOpenSidebar("notifications")} style={{ position: "relative", background: "transparent", border: "none", cursor: "pointer", color: "#9AAFC7", padding: 4 }}>
                 <BellIcon />
                 {unreadCount > 0 && <span style={{ position: "absolute", top: 0, right: 0, width: 8, height: 8, background: "#DC2626", borderRadius: "50%" }} />}
@@ -742,13 +804,16 @@ export default function Home() {
               </button>
             </div>
           ) : (
-            <button onClick={() => router.push("/login")} style={{ background: "#1D9E75", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Login</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <LanguageToggle lang={lang} onToggle={handleToggleLang} />
+              <button onClick={() => router.push("/login")} style={{ background: "#1D9E75", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{t.login}</button>
+            </div>
           )}
         </div>
         <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Trusted Home Services</div>
         <div style={{ fontSize: 13, color: "#9AAFC7" }}>Professional helpers, right at your door</div>
         <div style={{ display: "flex", gap: 14, marginTop: "1rem" }}>
-          {["Verified Pros", "Fixed Prices", "Guaranteed"].map((t) => (
+          {[t.badge1, t.badge2, t.badge3].map((t) => (
             <div key={t} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#7BAEC8" }}>
               <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />{t}
             </div>
@@ -772,7 +837,7 @@ export default function Home() {
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
           <input
-            placeholder="Search services..."
+            placeholder={t.searchPlaceholder}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ ...inputStyle, paddingLeft: 30, marginBottom: 0 }}
@@ -830,9 +895,9 @@ export default function Home() {
               ))}
               <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: "14px", marginBottom: "1rem" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Your Details</div>
-                <input placeholder="Your Name" value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
-                <input placeholder="Phone Number" value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
-                <input placeholder="Address" value={address} onChange={(e) => setAddress(e.target.value)} style={inputStyle} />
+                <input placeholder={t.namePlaceholder} value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
+                <input placeholder={t.phonePlaceholder} value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
+                <input placeholder={t.addressPlaceholder} value={address} onChange={(e) => setAddress(e.target.value)} style={inputStyle} />
                 {/* Scheduling — user নির্দিষ্ট time দিতে পারবে।
                     min = এখন থেকে 1 ঘন্টা পরে, কারণ immediate booking এর জন্য
                     কমপক্ষে 1 ঘন্টার lead time দরকার। */}
@@ -868,7 +933,7 @@ export default function Home() {
                   ["Name", name],
                   ["Phone", phone],
                   ["Scheduled", scheduledAt ? new Date(scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"],
-                  ["Status", "Confirmed ✓"],
+                  [t.status, "Confirmed ✓"],
                 ].map(([label, val]) => (
                   <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0" }}>
                     <span style={{ color: "#888780" }}>{label}</span>
@@ -890,7 +955,7 @@ export default function Home() {
                       <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E", marginBottom: 4 }}>🎉 Service Completed!</div>
                       <div style={{ fontSize: 12, color: "#92400E", marginBottom: 12 }}>Please complete your payment to finish the booking.</div>
                       <button onClick={handlePayment} disabled={paymentLoading} style={{ width: "100%", background: paymentLoading ? "#B4B2A9" : "#0A2540", color: "#fff", border: "none", borderRadius: 10, padding: "13px", fontSize: 14, fontWeight: 700, cursor: paymentLoading ? "not-allowed" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                        {paymentLoading ? "Redirecting..." : (
+                        {paymentLoading ? t.redirecting : (
                           <>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
                               <rect x="1" y="4" width="22" height="16" rx="2" /><line x1="1" y1="10" x2="23" y2="10" />
@@ -964,6 +1029,105 @@ export default function Home() {
             </div>
           )}
         </div>
+      )}
+      {/* ✅ Customer Care floating button — শুধু logged-in user দেখবে */}
+      {user && (
+        <>
+          {/* Floating button */}
+          <button
+            onClick={openSupport}
+            style={{
+              position: "fixed", bottom: 24, right: 24, zIndex: 999,
+              width: 52, height: 52, borderRadius: "50%",
+              background: "#1D9E75", border: "none", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 4px 16px rgba(29,158,117,0.4)",
+            }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+            </svg>
+            {supportUnread > 0 && (
+              <span style={{ position: "absolute", top: 0, right: 0, width: 18, height: 18, background: "#DC2626", borderRadius: "50%", fontSize: 10, fontWeight: 700, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {supportUnread}
+              </span>
+            )}
+          </button>
+
+          {/* Support chat modal */}
+          {showSupport && (
+            <div style={{ position: "fixed", bottom: 88, right: 24, zIndex: 1000, width: 320, background: "#fff", borderRadius: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", border: "1px solid #E5E7EB", display: "flex", flexDirection: "column", maxHeight: 420 }}>
+              {/* Header */}
+              <div style={{ background: "#0A2540", borderRadius: "16px 16px 0 0", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round">
+                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Customer Support</div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.6)" }}>FixNext Sheba</div>
+                  </div>
+                </div>
+                <button onClick={() => setShowSupport(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.7)", padding: 4 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Messages */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, minHeight: 200, maxHeight: 280 }}>
+                {supportMessages.length === 0 ? (
+                  <div style={{ textAlign: "center", color: "#888780", fontSize: 12, marginTop: 40 }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>💬</div>
+                    <div>How can we help you?</div>
+                    <div style={{ fontSize: 11, marginTop: 4 }}>Send a message to our support team</div>
+                  </div>
+                ) : (
+                  supportMessages.map((msg, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: msg.senderRole === "admin" ? "flex-start" : "flex-end" }}>
+                      <div style={{
+                        maxWidth: "75%", padding: "8px 12px", borderRadius: msg.senderRole === "admin" ? "4px 12px 12px 12px" : "12px 4px 12px 12px",
+                        background: msg.senderRole === "admin" ? "#F0F2F5" : "#1D9E75",
+                        color: msg.senderRole === "admin" ? "#2C2C2A" : "#fff",
+                        fontSize: 12, lineHeight: 1.5,
+                      }}>
+                        {msg.senderRole === "admin" && <div style={{ fontSize: 10, fontWeight: 700, color: "#1D9E75", marginBottom: 3 }}>Support Team</div>}
+                        {msg.message}
+                        <div style={{ fontSize: 10, opacity: 0.6, marginTop: 3, textAlign: "right" }}>
+                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+                <div ref={supportEndRef} />
+              </div>
+
+              {/* Input */}
+              <div style={{ padding: "10px 14px", borderTop: "1px solid #E5E7EB", display: "flex", gap: 8 }}>
+                <input
+                  value={supportInput}
+                  onChange={e => setSupportInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && sendSupportMessage()}
+                  placeholder="Type a message..."
+                  style={{ flex: 1, padding: "8px 12px", border: "1px solid #E5E7EB", borderRadius: 20, fontSize: 12, outline: "none", fontFamily: "inherit" }}
+                />
+                <button
+                  onClick={sendSupportMessage}
+                  disabled={!supportInput.trim() || supportSending}
+                  style={{ width: 36, height: 36, borderRadius: "50%", background: supportInput.trim() ? "#1D9E75" : "#E5E7EB", border: "none", cursor: supportInput.trim() ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={supportInput.trim() ? "#fff" : "#888780"} strokeWidth="2.5" strokeLinecap="round">
+                    <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </main>
   );

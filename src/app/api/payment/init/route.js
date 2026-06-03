@@ -2,12 +2,31 @@ import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/jwt";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 const store_id = process.env.SSLCOMMERZ_STORE_ID;
 const store_passwd = process.env.SSLCOMMERZ_STORE_PASSWORD;
 
+// ✅ SSLCOMMERZ_IS_LIVE=true হলে live payment, false হলে sandbox
+// Vercel এ আগে false রেখে test করো, তারপর true করো
+const IS_LIVE = process.env.SSLCOMMERZ_IS_LIVE === "true";
+
+const SSL_URL = IS_LIVE
+  ? "https://securepay.sslcommerz.com/gwprocess/v4/api.php"
+  : "https://sandbox.sslcommerz.com/gwprocess/v4/api.php";
+
 export async function POST(req) {
   try {
+    // ✅ Rate limiting: একই IP থেকে ১ মিনিটে সর্বোচ্চ ৫টা payment attempt
+    const ip = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown";
+    const { allowed } = await checkRateLimit(ip, "payment", 5, 1);
+    if (!allowed) {
+      return Response.json(
+        { success: false, message: "Too many requests. Please wait a moment." },
+        { status: 429 }
+      );
+    }
+
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
     if (!token) return Response.json({ success: false, message: "Unauthorized" }, { status: 401 });
@@ -27,7 +46,6 @@ export async function POST(req) {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
     const transactionId = `TXN-${bookingId}-${Date.now()}`;
 
-    // FormData বানান
     const formData = new URLSearchParams();
     formData.append("store_id", store_id);
     formData.append("store_passwd", store_passwd);
@@ -49,31 +67,32 @@ export async function POST(req) {
     formData.append("cus_country", "Bangladesh");
     formData.append("cus_phone", booking.phone || "01700000000");
 
-    // সরাসরি SSLCommerz Sandbox API তে call করুন
-    const sslResponse = await fetch("https://sandbox.sslcommerz.com/gwprocess/v4/api.php", {
+    // ✅ SSL_URL এখন env var দিয়ে switch হয় — sandbox বা live
+    const sslResponse = await fetch(SSL_URL, {
       method: "POST",
       body: formData,
     });
 
     const apiResponse = await sslResponse.json();
-    console.log("SSLCommerz response:", apiResponse);
 
     if (apiResponse?.GatewayPageURL) {
       await db.collection("transactions").insertOne({
         transactionId,
         bookingId,
         userId: payload.id,
-        // userEmail store করি যাতে payment/success route এ
-        // user এর email জানতে আরেকটা DB call না করতে হয়।
         userEmail: payload.email,
         amount: Number(booking.price) || 500,
         status: "pending",
+        isLive: IS_LIVE,
         createdAt: new Date(),
       });
 
       return Response.json({ success: true, url: apiResponse.GatewayPageURL });
     } else {
-      return Response.json({ success: false, message: apiResponse?.failedreason || "Failed to initiate payment" }, { status: 500 });
+      return Response.json(
+        { success: false, message: apiResponse?.failedreason || "Failed to initiate payment" },
+        { status: 500 }
+      );
     }
   } catch (error) {
     console.error("Payment init error:", error);

@@ -3,28 +3,30 @@ import { MongoClient } from "mongodb";
 const uri = process.env.MONGODB_URI;
 
 if (!uri) {
-  throw new Error("❌ MONGODB_URI is not defined in .env.local");
+  throw new Error("MONGODB_URI is not defined");
 }
 
 const options = {
-  tls: true, // Ensure secure connection; adjust if using local MongoDB
+  tls: true,
+  maxPoolSize: 10,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 10000,
 };
 
-let client;
 let clientPromise;
 
-try {
+if (process.env.NODE_ENV === "development") {
+  // Development: global cache রাখো যাতে hot-reload এ বারবার connection না হয়
   if (!global._mongoClientPromise) {
-    client = new MongoClient(uri, options);
-    global._mongoClientPromise = client.connect().catch((err) => {
-      console.error("❌ MongoDB connection failed:", err);
-      throw err;
-    });
+    const client = new MongoClient(uri, options);
+    global._mongoClientPromise = client.connect();
   }
   clientPromise = global._mongoClientPromise;
-} catch (error) {
-  console.error("❌ Error initializing MongoDB client:", error);
-  throw error;
+} else {
+  // Production (Vercel serverless): প্রতিটা function invocation এ fresh connection
+  // কারণ Vercel এ global state persist করে না
+  const client = new MongoClient(uri, options);
+  clientPromise = client.connect();
 }
 
 export default clientPromise;
