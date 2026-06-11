@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 const StatusBadge = ({ status }) => {
@@ -16,6 +17,29 @@ const StatusBadge = ({ status }) => {
       {status}
     </span>
   );
+};
+
+const TierBadge = ({ type }) => {
+  const map = {
+    basic: { bg: "rgba(14,165,233,0.15)", color: "#0EA5E9", label: "Basic" },
+    standard: { bg: "rgba(139,92,246,0.15)", color: "#8B5CF6", label: "Standard" },
+    premium: { bg: "rgba(245,158,11,0.15)", color: "#F59E0B", label: "Premium" },
+  };
+  const t = map[type] || map.basic;
+  return (
+    <span style={{ background: t.bg, color: t.color, padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+      {t.label}
+    </span>
+  );
+};
+
+const groupServicesByName = (services) => {
+  const grouped = {};
+  services.forEach((s) => {
+    if (!grouped[s.name]) grouped[s.name] = { name: s.name, items: [] };
+    grouped[s.name].items.push(s);
+  });
+  return Object.values(grouped);
 };
 
 export default function AdminPage() {
@@ -63,9 +87,21 @@ export default function AdminPage() {
   const [servicesLoading, setServicesLoading] = useState(false);
   const [showServiceForm, setShowServiceForm] = useState(false);
   const [editingService, setEditingService] = useState(null);
-  const [serviceForm, setServiceForm] = useState({ name: "", icon: "🔧", subtitle: "", options: [{ label: "", price: "" }] });
+  const [serviceForm, setServiceForm] = useState({
+    name: "",
+    subtitle: "",
+    image: "",
+    nameImage: "",
+    options: [{ label: "", price: "", type: "basic" }],
+  });
   const [serviceSaving, setServiceSaving] = useState(false);
   const [deleteServiceId, setDeleteServiceId] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const imageInputRef = useRef(null);
+  const [nameImagePreview, setNameImagePreview] = useState("");
+  const nameImageInputRef = useRef(null);
+
+  const [expandedGroups, setExpandedGroups] = useState({});
 
   const bg = dark ? "#0D1117" : "#F0F4FF";
   const sidebar = dark ? "#161B22" : "#0A2540";
@@ -109,32 +145,36 @@ export default function AdminPage() {
     return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
   };
 
-  // Helper: extract message text from any known field name
   const getMsgText = (msg) => {
-    return (
-      msg.message ||
-      msg.text ||
-      msg.content ||
-      msg.body ||
-      msg.msg ||
-      msg.messageText ||
-      msg.description ||
-      ""
-    );
+    return msg.message || msg.text || msg.content || msg.body || msg.msg || msg.messageText || msg.description || "";
   };
 
-  // Helper: extract timestamp from any known field name
   const getMsgTime = (msg) => {
-    return (
-      msg.createdAt ||
-      msg.timestamp ||
-      msg.date ||
-      msg.sentAt ||
-      msg.time ||
-      msg.created_at ||
-      msg.updatedAt ||
-      ""
-    );
+    return msg.createdAt || msg.timestamp || msg.date || msg.sentAt || msg.time || msg.created_at || msg.updatedAt || "";
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target.result;
+      setImagePreview(base64);
+      setServiceForm((p) => ({ ...p, image: base64 }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleNameImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target.result;
+      setNameImagePreview(base64);
+      setServiceForm((p) => ({ ...p, nameImage: base64 }));
+    };
+    reader.readAsDataURL(file);
   };
 
   useEffect(() => {
@@ -154,6 +194,7 @@ export default function AdminPage() {
         .topbar-search { width: 140px !important; }
         .tx-detail-grid { grid-template-columns: 1fr !important; }
         .support-grid { grid-template-columns: 1fr !important; }
+        .service-grid { grid-template-columns: 1fr !important; }
       }
       @media (max-width: 480px) {
         .stat-grid-4 { grid-template-columns: 1fr 1fr !important; }
@@ -165,6 +206,10 @@ export default function AdminPage() {
       .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
       .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
       .admin-sidebar { transition: transform 0.3s; }
+      .service-card-item:hover { opacity: 0.9; }
+      .tier-box { border-radius: 8px; padding: 10px 12px; border: 1px solid; display: flex; flex-direction: column; gap: 3px; }
+      .img-upload-zone { border: 2px dashed; border-radius: 10px; padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s; }
+      .img-upload-zone:hover { opacity: 0.8; }
     `;
     document.head.appendChild(style);
     return () => document.head.removeChild(style);
@@ -213,18 +258,14 @@ export default function AdminPage() {
     setThreadLoading(true);
     setThreadMessages([]);
     try {
-      // threadId from aggregation is stored in _id field
       const res = await fetch(`/api/support?threadId=${threadId}`);
       const data = await res.json();
       if (data.success) {
         const msgs = Array.isArray(data.data) ? data.data : [];
         setThreadMessages(msgs);
       }
-    } catch (err) {
-      console.error("fetchThreadMessages error:", err);
-    } finally {
-      setThreadLoading(false);
-    }
+    } catch (err) { console.error("fetchThreadMessages error:", err); }
+    finally { setThreadLoading(false); }
   };
 
   const sendAdminReply = async () => {
@@ -247,16 +288,29 @@ export default function AdminPage() {
     finally { setServicesLoading(false); }
   };
 
+  const resetServiceForm = () => {
+    setServiceForm({ name: "", subtitle: "", image: "", nameImage: "", options: [{ label: "", price: "", type: "basic" }] });
+    setImagePreview("");
+    setNameImagePreview("");
+    setEditingService(null);
+    setShowServiceForm(false);
+  };
+
   const handleSaveService = async () => {
     if (!serviceForm.name.trim()) return alert("Please enter a service name");
+    if (!serviceForm.subtitle.trim()) return alert("Please enter a subtitle");
     if (serviceForm.options.some((o) => !o.label || !o.price)) return alert("Please fill in all package options");
     setServiceSaving(true);
     try {
       const method = editingService ? "PATCH" : "POST";
       const body = editingService ? { id: editingService._id, ...serviceForm } : serviceForm;
-      const res = await fetch("/api/admin/specialists", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res = await fetch("/api/admin/specialists", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       const data = await res.json();
-      if (data.success) { setShowServiceForm(false); setEditingService(null); setServiceForm({ name: "", icon: "🔧", subtitle: "", options: [{ label: "", price: "" }] }); fetchAllServices(); }
+      if (data.success) { resetServiceForm(); fetchAllServices(); }
     } finally { setServiceSaving(false); }
   };
 
@@ -313,6 +367,8 @@ export default function AdminPage() {
   const filteredBookings = (filter === "all" ? bookings : bookings.filter((b) => b.status === filter)).filter((b) => !search || b.name?.toLowerCase().includes(search.toLowerCase()) || b.service?.toLowerCase().includes(search.toLowerCase()));
   const filteredUsers = users.filter((u) => userFilter === "all" || u.role === userFilter).filter((u) => !search || u.name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase()));
 
+  const groupedServices = groupServicesByName(allServices);
+
   const thStyle = { padding: "12px 16px", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: muted, fontWeight: 600, borderBottom: `1px solid ${border}`, textAlign: "left", background: dark ? "rgba(255,255,255,0.02)" : "#F8FAFF", whiteSpace: "nowrap" };
   const tdStyle = { padding: "13px 16px", fontSize: 12, color: text, borderBottom: `1px solid ${border}`, verticalAlign: "middle" };
 
@@ -340,6 +396,40 @@ export default function AdminPage() {
   ];
 
   const goTab = (key) => { setActiveTab(key); setSidebarOpen(false); };
+
+  const tierConfig = {
+    basic: { bg: "rgba(14,165,233,0.10)", border: "rgba(14,165,233,0.3)", color: "#38BDF8", label: "BASIC" },
+    standard: { bg: "rgba(139,92,246,0.10)", border: "rgba(139,92,246,0.3)", color: "#A78BFA", label: "STANDARD" },
+    premium: { bg: "rgba(245,158,11,0.10)", border: "rgba(245,158,11,0.3)", color: "#FCD34D", label: "PREMIUM" },
+  };
+
+  const ServiceTierBoxes = ({ options }) => {
+    const byTier = { basic: [], standard: [], premium: [] };
+    options.forEach((o) => { const t = o.type || "basic"; if (byTier[t]) byTier[t].push(o); });
+    const hasTiers = Object.values(byTier).some((arr) => arr.length > 0);
+    if (!hasTiers) return null;
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginTop: 10 }}>
+        {["basic", "standard", "premium"].map((tier) => {
+          const cfg = tierConfig[tier];
+          const items = byTier[tier];
+          return (
+            <div key={tier} className="tier-box" style={{ background: cfg.bg, borderColor: cfg.border }}>
+              <div style={{ fontSize: 9, fontWeight: 800, color: cfg.color, letterSpacing: "0.1em", marginBottom: 4 }}>{cfg.label}</div>
+              {items.length === 0 ? (
+                <div style={{ fontSize: 10, color: muted, fontStyle: "italic" }}>—</div>
+              ) : items.map((o, i) => (
+                <div key={i} style={{ display: "flex", flexDirection: "column", gap: 1, marginBottom: i < items.length - 1 ? 4 : 0 }}>
+                  <div style={{ fontSize: 10, color: text, fontWeight: 600 }}>{o.label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#4ADE80" }}>৳{o.price}</div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: bg, fontFamily: "'Inter', sans-serif", color: text, transition: "background 0.3s", position: "relative" }}>
@@ -533,16 +623,15 @@ export default function AdminPage() {
                           const tc = tierColors[b.serviceType] || tierColors.basic;
                           const tb = tierBgs[b.serviceType] || tierBgs.basic;
                           return (
-                          <tr key={i} onMouseEnter={(e) => (e.currentTarget.style.background = dark ? "rgba(255,255,255,0.02)" : "#F8FAFF")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")} style={{ transition: "background 0.15s" }}>
-                            <td style={{ ...tdStyle, fontWeight: 600 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 28, height: 28, borderRadius: "50%", background: `hsl(${(b.name?.charCodeAt(0) || 0) * 10},60%,45%)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{b.name?.charAt(0).toUpperCase()}</span></div>{b.name}</div></td>
-                            <td style={{ ...tdStyle, color: muted, fontFamily: "monospace", fontSize: 11 }}>{b.phone}</td>
-                            <td style={tdStyle}>{b.service}</td>
-                            {/* ✅ Tier badge */}
-                            <td style={tdStyle}><span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: tb, color: tc, textTransform: "uppercase" }}>{b.serviceType || "basic"}</span></td>
-                            <td style={{ ...tdStyle, color: muted, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={b.address}>{b.address}</td>
-                            <td style={tdStyle}><div style={{ display: "flex", flexDirection: "column", gap: 4 }}><StatusBadge status={b.status} /><div style={{ display: "flex", gap: 4 }}>{b.status === "pending" && <button onClick={() => updateStatus(b._id, "accepted")} style={{ fontSize: 10, padding: "2px 8px", background: "rgba(59,130,246,0.12)", color: "#60A5FA", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 5, cursor: "pointer" }}>Accept</button>}{b.status === "accepted" && <button onClick={() => updateStatus(b._id, "completed")} style={{ fontSize: 10, padding: "2px 8px", background: "rgba(34,197,94,0.12)", color: "#4ADE80", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 5, cursor: "pointer" }}>Complete</button>}</div></div></td>
-                            <td style={{ ...tdStyle, color: muted, fontSize: 11 }}>{formatDateTime(b.createdAt)}</td>
-                          </tr>
+                            <tr key={i} onMouseEnter={(e) => (e.currentTarget.style.background = dark ? "rgba(255,255,255,0.02)" : "#F8FAFF")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")} style={{ transition: "background 0.15s" }}>
+                              <td style={{ ...tdStyle, fontWeight: 600 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 28, height: 28, borderRadius: "50%", background: `hsl(${(b.name?.charCodeAt(0) || 0) * 10},60%,45%)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{b.name?.charAt(0).toUpperCase()}</span></div>{b.name}</div></td>
+                              <td style={{ ...tdStyle, color: muted, fontFamily: "monospace", fontSize: 11 }}>{b.phone}</td>
+                              <td style={tdStyle}>{b.service}</td>
+                              <td style={tdStyle}><span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: tb, color: tc, textTransform: "uppercase" }}>{b.serviceType || "basic"}</span></td>
+                              <td style={{ ...tdStyle, color: muted, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={b.address}>{b.address}</td>
+                              <td style={tdStyle}><div style={{ display: "flex", flexDirection: "column", gap: 4 }}><StatusBadge status={b.status} /><div style={{ display: "flex", gap: 4 }}>{b.status === "pending" && <button onClick={() => updateStatus(b._id, "accepted")} style={{ fontSize: 10, padding: "2px 8px", background: "rgba(59,130,246,0.12)", color: "#60A5FA", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 5, cursor: "pointer" }}>Accept</button>}{b.status === "accepted" && <button onClick={() => updateStatus(b._id, "completed")} style={{ fontSize: 10, padding: "2px 8px", background: "rgba(34,197,94,0.12)", color: "#4ADE80", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 5, cursor: "pointer" }}>Complete</button>}</div></div></td>
+                              <td style={{ ...tdStyle, color: muted, fontSize: 11 }}>{formatDateTime(b.createdAt)}</td>
+                            </tr>
                           );
                         })}
                       </tbody>
@@ -669,10 +758,7 @@ export default function AdminPage() {
                   <button onClick={fetchSupportThreads} style={{ marginLeft: 8, fontSize: 11, color: accent, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>↺ Refresh</button>
                 </p>
               </div>
-
               <div className="support-grid" style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16, minHeight: 500 }}>
-
-                {/* Thread list */}
                 <div style={{ background: card, borderRadius: 14, border: `1px solid ${border}`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                   <div style={{ padding: "12px 16px", borderBottom: `1px solid ${border}`, fontSize: 13, fontWeight: 700, color: text }}>Conversations</div>
                   <div style={{ flex: 1, overflowY: "auto" }}>
@@ -707,8 +793,6 @@ export default function AdminPage() {
                     })}
                   </div>
                 </div>
-
-                {/* Message pane */}
                 <div style={{ background: card, borderRadius: 14, border: `1px solid ${border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                   {!selectedThread ? (
                     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", color: muted, fontSize: 13, gap: 8 }}>
@@ -717,7 +801,6 @@ export default function AdminPage() {
                     </div>
                   ) : (
                     <>
-                      {/* Header */}
                       <div style={{ padding: "12px 16px", borderBottom: `1px solid ${border}`, display: "flex", alignItems: "center", gap: 10 }}>
                         <div style={{ width: 32, height: 32, borderRadius: "50%", background: `hsl(${(selectedThread.senderName?.charCodeAt(0) || 0) * 10},55%,45%)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{selectedThread.senderName?.charAt(0).toUpperCase()}</span>
@@ -727,8 +810,6 @@ export default function AdminPage() {
                           <div style={{ fontSize: 10, color: muted }}>{threadMessages.length} message{threadMessages.length !== 1 ? "s" : ""}</div>
                         </div>
                       </div>
-
-                      {/* Messages */}
                       <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10, minHeight: 300 }} className="scrollbar-thin">
                         {threadLoading ? (
                           <div style={{ textAlign: "center", color: muted, fontSize: 13, marginTop: "2rem" }}>Loading messages…</div>
@@ -741,22 +822,14 @@ export default function AdminPage() {
                           return (
                             <div key={i} style={{ display: "flex", justifyContent: isAdmin ? "flex-end" : "flex-start" }}>
                               <div style={{ maxWidth: "70%", padding: "10px 14px", borderRadius: isAdmin ? "14px 4px 14px 14px" : "4px 14px 14px 14px", background: isAdmin ? accent : dark ? "rgba(255,255,255,0.06)" : "#F3F4F6", color: isAdmin ? "#fff" : text, fontSize: 13, lineHeight: 1.5 }}>
-                                {!isAdmin && (
-                                  <div style={{ fontSize: 10, fontWeight: 700, color: isAdmin ? "rgba(255,255,255,0.7)" : muted, marginBottom: 3 }}>
-                                    {msg.senderName || selectedThread.senderName}
-                                  </div>
-                                )}
+                                {!isAdmin && <div style={{ fontSize: 10, fontWeight: 700, color: muted, marginBottom: 3 }}>{msg.senderName || selectedThread.senderName}</div>}
                                 <div>{msgText || <span style={{ opacity: 0.4, fontStyle: "italic" }}>empty message</span>}</div>
-                                {timeStr && (
-                                  <div style={{ fontSize: 10, opacity: 0.55, marginTop: 5, textAlign: "right" }}>{timeStr}</div>
-                                )}
+                                {timeStr && <div style={{ fontSize: 10, opacity: 0.55, marginTop: 5, textAlign: "right" }}>{timeStr}</div>}
                               </div>
                             </div>
                           );
                         })}
                       </div>
-
-                      {/* Reply box */}
                       <div style={{ padding: "12px 16px", borderTop: `1px solid ${border}`, display: "flex", gap: 8 }}>
                         <input value={adminReply} onChange={(e) => setAdminReply(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAdminReply(); } }} placeholder="Type a reply…" style={{ flex: 1, padding: "9px 14px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
                         <button onClick={sendAdminReply} disabled={!adminReply.trim() || replySending} style={{ padding: "9px 18px", borderRadius: 8, background: adminReply.trim() ? accent : dark ? "rgba(255,255,255,0.06)" : "#E5E7EB", color: adminReply.trim() ? "#fff" : muted, border: "none", cursor: adminReply.trim() ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 700, fontFamily: "inherit", whiteSpace: "nowrap" }}>
@@ -774,75 +847,310 @@ export default function AdminPage() {
           {activeTab === "services" && (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-                <div><h1 style={{ fontSize: 20, fontWeight: 700, color: text, margin: "0 0 4px" }}>Service Management</h1><p style={{ fontSize: 12, color: muted, margin: 0 }}>{allServices.length} services shown on the signup form</p></div>
-                <button onClick={() => { setEditingService(null); setServiceForm({ name: "", icon: "🔧", subtitle: "", options: [{ label: "", price: "" }] }); setShowServiceForm(true); }} style={{ padding: "9px 18px", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>+ Add Service</button>
-              </div>
-              {showServiceForm && (
-                <div style={{ background: card, borderRadius: 14, border: `2px solid ${accent}`, padding: "1.5rem", marginBottom: "1.5rem" }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: text, marginBottom: "1rem" }}>{editingService ? "Edit Service" : "New Service"}</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-                    {[["name", "Service name (e.g. Plumbing)", serviceForm.name], ["icon", "Icon emoji (e.g. 🔧)", serviceForm.icon], ["subtitle", "Subtitle (e.g. Leak fix, pipe work)", serviceForm.subtitle]].map(([key, placeholder, val]) => (
-                      <div key={key} style={{ gridColumn: key === "subtitle" ? "1 / -1" : "auto" }}>
-                        <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{placeholder}</div>
-                        <input value={val} onChange={(e) => setServiceForm((p) => ({ ...p, [key]: e.target.value }))} placeholder={placeholder} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Packages</div>
-                    {serviceForm.options.map((opt, i) => (
-                      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                        <input placeholder="Package name (e.g. Basic)" value={opt.label} onChange={(e) => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], label: e.target.value }; setServiceForm((p) => ({ ...p, options: opts })); }} style={{ flex: 2, minWidth: 120, padding: "8px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
-                        <input placeholder="Price (e.g. 500)" type="number" value={opt.price} onChange={(e) => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], price: e.target.value }; setServiceForm((p) => ({ ...p, options: opts })); }} style={{ flex: 1, minWidth: 80, padding: "8px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
-                        {/* ✅ Service Tier selector */}
-                        <select value={opt.type || "basic"} onChange={(e) => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], type: e.target.value }; setServiceForm((p) => ({ ...p, options: opts })); }} style={{ flex: 1, minWidth: 100, padding: "8px 10px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 12, outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
-                          <option value="basic">🔵 Basic</option>
-                          <option value="standard">🟣 Standard</option>
-                          <option value="premium">🟡 Premium</option>
-                        </select>
-                        {serviceForm.options.length > 1 && <button onClick={() => setServiceForm((p) => ({ ...p, options: p.options.filter((_, idx) => idx !== i) }))} style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", color: "#F87171", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>✕</button>}
-                      </div>
-                    ))}
-                    <button onClick={() => setServiceForm((p) => ({ ...p, options: [...p.options, { label: "", price: "", type: "basic" }] }))} style={{ fontSize: 12, color: accent, background: "none", border: `1px dashed ${border}`, borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontFamily: "inherit", width: "100%" }}>+ Add option</button>
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={handleSaveService} disabled={serviceSaving} style={{ padding: "10px 24px", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>{serviceSaving ? "Saving…" : editingService ? "Update" : "Create"}</button>
-                    <button onClick={() => setShowServiceForm(false)} style={{ padding: "10px 20px", background: "transparent", color: muted, border: `1px solid ${border}`, borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>Cancel</button>
-                  </div>
+                <div>
+                  <h1 style={{ fontSize: 20, fontWeight: 700, color: text, margin: "0 0 4px" }}>Service Management</h1>
+                  <p style={{ fontSize: 12, color: muted, margin: 0 }}>
+                    {groupedServices.length} service{groupedServices.length !== 1 ? "s" : ""} · {allServices.length} sub-entries
+                  </p>
                 </div>
-              )}
-              {servicesLoading ? <div style={{ textAlign: "center", color: muted, padding: "3rem" }}>Loading…</div> : allServices.length === 0 ? (
-                <div style={{ background: card, borderRadius: 14, border: `1px solid ${border}`, padding: "3rem", textAlign: "center" }}><div style={{ fontSize: 32, marginBottom: 12 }}>🛠️</div><div style={{ fontSize: 14, color: text, marginBottom: 6 }}>No services yet</div><div style={{ fontSize: 12, color: muted }}>Use Add Service to create the first one.</div></div>
-              ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
-                  {allServices.map((s) => (
-                    <div key={s._id} style={{ background: card, borderRadius: 14, border: `1px solid ${border}`, padding: "1rem 1.25rem" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 26 }}>{s.icon}</span><div><div style={{ fontSize: 13, fontWeight: 700, color: text }}>{s.name}</div><div style={{ fontSize: 11, color: muted }}>{s.subtitle}</div></div></div>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          {/* ✅ Edit এ type ও preserve করো */}
-                          <button onClick={() => { setEditingService(s); setServiceForm({ name: s.name, icon: s.icon, subtitle: s.subtitle, options: s.options.map((o) => ({ label: o.label, price: o.price, type: o.type || "basic" })) }); setShowServiceForm(true); }} style={{ fontSize: 11, padding: "4px 10px", background: "rgba(79,142,247,0.1)", color: accent, border: `1px solid rgba(79,142,247,0.2)`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>Edit</button>
-                          <button onClick={() => setDeleteServiceId(s._id)} style={{ fontSize: 11, padding: "4px 10px", background: "rgba(239,68,68,0.1)", color: "#F87171", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>Del</button>
+                <button
+                  onClick={() => { resetServiceForm(); setShowServiceForm(true); }}
+                  style={{ padding: "9px 18px", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Add Service
+                </button>
+              </div>
+
+              {/* SERVICE FORM */}
+              {showServiceForm && (
+                <div style={{ background: card, borderRadius: 14, border: `2px solid ${accent}`, padding: "1.5rem", marginBottom: "1.5rem", boxShadow: "0 4px 24px rgba(79,142,247,0.12)" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: text, marginBottom: "1.25rem" }}>
+                    {editingService ? "✏️ Edit Service Entry" : "➕ New Service Entry"}
+                  </div>
+
+                  {/* Row 1: name + subtitle */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Service Name</div>
+                      <input
+                        value={serviceForm.name}
+                        onChange={(e) => setServiceForm((p) => ({ ...p, name: e.target.value }))}
+                        placeholder="e.g. Plumbing"
+                        style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Subtitle</div>
+                      <input
+                        value={serviceForm.subtitle}
+                        onChange={(e) => setServiceForm((p) => ({ ...p, subtitle: e.target.value }))}
+                        placeholder="e.g. Leak fix & pipe work"
+                        style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Service Name (Group) Image */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                      Service Name Image <span style={{ fontSize: 10, color: accent, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>(group cover — service নামের পাশে দেখাবে)</span>
+                    </div>
+                    <input ref={nameImageInputRef} type="file" accept="image/*" onChange={handleNameImageUpload} style={{ display: "none" }} />
+                    {nameImagePreview || serviceForm.nameImage ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <img
+                          src={nameImagePreview || serviceForm.nameImage}
+                          alt="name preview"
+                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, border: `1px solid ${border}` }}
+                        />
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <button
+                            onClick={() => nameImageInputRef.current?.click()}
+                            style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${border}`, background: "transparent", color: accent, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+                          >
+                            Change Image
+                          </button>
+                          <button
+                            onClick={() => { setNameImagePreview(""); setServiceForm((p) => ({ ...p, nameImage: "" })); }}
+                            style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#F87171", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+                          >
+                            Remove
+                          </button>
                         </div>
                       </div>
-                      {/* ✅ Options with tier badge */}
-                      {s.options.map((opt, i) => {
-                        const tierColors = { basic: "#0EA5E9", standard: "#8B5CF6", premium: "#F59E0B" };
-                        const tierBgs = { basic: "#E0F2FE", standard: "#EDE9FE", premium: "#FEF3C7" };
-                        const tc = tierColors[opt.type] || tierColors.basic;
-                        const tb = tierBgs[opt.type] || tierBgs.basic;
+                    ) : (
+                      <div
+                        className="img-upload-zone"
+                        onClick={() => nameImageInputRef.current?.click()}
+                        style={{ borderColor: border, background: dark ? "rgba(255,255,255,0.02)" : "#F9FAFB", color: muted }}
+                      >
+                        <div style={{ fontSize: 28, marginBottom: 6 }}>🖼️</div>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>Click to upload service name cover image</div>
+                        <div style={{ fontSize: 11, marginTop: 3 }}>Group header-এ দেখাবে</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Subtitle Image upload */}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                      Subtitle Image <span style={{ fontSize: 10, color: muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>(এই subtitle-এর জন্য)</span>
+                    </div>
+                    <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageUpload} style={{ display: "none" }} />
+                    {imagePreview || serviceForm.image ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <img
+                          src={imagePreview || serviceForm.image}
+                          alt="preview"
+                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, border: `1px solid ${border}` }}
+                        />
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <button
+                            onClick={() => imageInputRef.current?.click()}
+                            style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${border}`, background: "transparent", color: accent, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+                          >
+                            Change Image
+                          </button>
+                          <button
+                            onClick={() => { setImagePreview(""); setServiceForm((p) => ({ ...p, image: "" })); }}
+                            style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#F87171", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className="img-upload-zone"
+                        onClick={() => imageInputRef.current?.click()}
+                        style={{ borderColor: border, background: dark ? "rgba(255,255,255,0.02)" : "#F9FAFB", color: muted }}
+                      >
+                        <div style={{ fontSize: 28, marginBottom: 6 }}>📷</div>
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>Click to upload subtitle image</div>
+                        <div style={{ fontSize: 11, marginTop: 3 }}>PNG, JPG, WebP supported</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Packages */}
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Packages</div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                      {["basic", "standard", "premium"].map((tier) => {
+                        const cfg = tierConfig[tier];
                         return (
-                          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, padding: "6px 8px", background: dark ? "rgba(255,255,255,0.03)" : "#F8FAFF", borderRadius: 6, marginBottom: 3 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ color: text }}>{opt.label}</span>
-                              {opt.type && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: tb, color: tc, textTransform: "uppercase" }}>{opt.type}</span>}
-                            </div>
-                            <span style={{ fontWeight: 700, color: "#4ADE80" }}>৳{opt.price}</span>
+                          <div key={tier} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 6, background: cfg.bg, border: `1px solid ${cfg.border}` }}>
+                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.color }} />
+                            <span style={{ fontSize: 10, fontWeight: 700, color: cfg.color, textTransform: "uppercase" }}>{tier}</span>
                           </div>
                         );
                       })}
                     </div>
-                  ))}
+                    {serviceForm.options.map((opt, i) => (
+                      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <input
+                          placeholder="Package name (e.g. Basic Fix)"
+                          value={opt.label}
+                          onChange={(e) => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], label: e.target.value }; setServiceForm((p) => ({ ...p, options: opts })); }}
+                          style={{ flex: 2, minWidth: 120, padding: "8px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }}
+                        />
+                        <input
+                          placeholder="Price"
+                          type="number"
+                          value={opt.price}
+                          onChange={(e) => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], price: e.target.value }; setServiceForm((p) => ({ ...p, options: opts })); }}
+                          style={{ flex: 1, minWidth: 80, padding: "8px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }}
+                        />
+                        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                          {["basic", "standard", "premium"].map((tier) => {
+                            const cfg = tierConfig[tier];
+                            const isActive = (opt.type || "basic") === tier;
+                            return (
+                              <button
+                                key={tier}
+                                onClick={() => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], type: tier }; setServiceForm((p) => ({ ...p, options: opts })); }}
+                                style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${isActive ? cfg.border : border}`, background: isActive ? cfg.bg : "transparent", color: isActive ? cfg.color : muted, fontSize: 10, fontWeight: 700, textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.04em", transition: "all 0.15s" }}
+                              >
+                                {tier}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {serviceForm.options.length > 1 && (
+                          <button
+                            onClick={() => setServiceForm((p) => ({ ...p, options: p.options.filter((_, idx) => idx !== i) }))}
+                            style={{ padding: "8px 10px", background: "rgba(239,68,68,0.1)", color: "#F87171", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => setServiceForm((p) => ({ ...p, options: [...p.options, { label: "", price: "", type: "basic" }] }))}
+                      style={{ fontSize: 12, color: accent, background: "none", border: `1px dashed ${border}`, borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontFamily: "inherit", width: "100%", marginTop: 4 }}
+                    >
+                      + Add package option
+                    </button>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={handleSaveService}
+                      disabled={serviceSaving}
+                      style={{ padding: "10px 24px", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}
+                    >
+                      {serviceSaving ? "Saving…" : editingService ? "Update" : "Create"}
+                    </button>
+                    <button
+                      onClick={resetServiceForm}
+                      style={{ padding: "10px 20px", background: "transparent", color: muted, border: `1px solid ${border}`, borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* SERVICE CARDS — GROUPED BY NAME */}
+              {servicesLoading ? (
+                <div style={{ textAlign: "center", color: muted, padding: "3rem" }}>Loading…</div>
+              ) : groupedServices.length === 0 ? (
+                <div style={{ background: card, borderRadius: 14, border: `1px solid ${border}`, padding: "3rem", textAlign: "center" }}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>🛠️</div>
+                  <div style={{ fontSize: 14, color: text, marginBottom: 6 }}>No services yet</div>
+                  <div style={{ fontSize: 12, color: muted }}>Use Add Service to create the first one.</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                  {groupedServices.map((group) => {
+                    const isExpanded = expandedGroups[group.name] !== false;
+                    const groupCoverImage = group.items.find((item) => item.nameImage)?.nameImage || null;
+                    return (
+                      <div key={group.name} style={{ background: card, borderRadius: 14, border: `1px solid ${border}`, overflow: "hidden" }}>
+                        {/* Group header */}
+                        <div
+                          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", cursor: "pointer", borderBottom: isExpanded ? `1px solid ${border}` : "none", background: dark ? "rgba(255,255,255,0.02)" : "#FAFBFF" }}
+                          onClick={() => setExpandedGroups((p) => ({ ...p, [group.name]: !isExpanded }))}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ width: 36, height: 36, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
+                              {groupCoverImage ? (
+                                <img src={groupCoverImage} alt={group.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              ) : (
+                                <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#1D9E75,#3B82F6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                  <svg viewBox="0 0 24 24" fill="none" width="16" height="16" stroke="#fff" strokeWidth="2" strokeLinecap="round"><path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: text }}>{group.name}</div>
+                              <div style={{ fontSize: 11, color: muted }}>{group.items.length} subtitle{group.items.length !== 1 ? "s" : ""}</div>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); resetServiceForm(); setServiceForm((p) => ({ ...p, name: group.name })); setShowServiceForm(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                              style={{ padding: "5px 12px", background: "rgba(29,158,117,0.12)", color: "#1D9E75", border: "1px solid rgba(29,158,117,0.25)", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: "inherit" }}
+                            >
+                              + Add subtitle
+                            </button>
+                            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth={2} style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", flexShrink: 0 }}><polyline points="6 9 12 15 18 9" /></svg>
+                          </div>
+                        </div>
+
+                        {/* Subtitle cards grid */}
+                        {isExpanded && (
+                          <div className="service-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12, padding: 16 }}>
+                            {group.items.map((s) => (
+                              <div key={s._id} className="service-card-item" style={{ background: dark ? "rgba(255,255,255,0.03)" : "#F8FAFF", borderRadius: 12, border: `1px solid ${border}`, overflow: "hidden" }}>
+                                {s.image ? (
+                                  <div style={{ width: "100%", height: 130, overflow: "hidden", position: "relative" }}>
+                                    <img src={s.image} alt={s.subtitle} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                    <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.45) 100%)" }} />
+                                  </div>
+                                ) : (
+                                  <div style={{ width: "100%", height: 80, background: dark ? "rgba(79,142,247,0.06)" : "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                    <svg viewBox="0 0 24 24" fill="none" width="28" height="28" stroke={muted} strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+                                  </div>
+                                )}
+                                <div style={{ padding: "12px 14px" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                                    <div>
+                                      <div style={{ fontSize: 12, fontWeight: 700, color: text }}>{s.subtitle}</div>
+                                      <div style={{ fontSize: 10, color: muted, marginTop: 2 }}>{s.options?.length || 0} package{(s.options?.length || 0) !== 1 ? "s" : ""}</div>
+                                    </div>
+                                    <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                                      <button
+                                        onClick={() => {
+                                          setEditingService(s);
+                                          setImagePreview(s.image || "");
+                                          setNameImagePreview(s.nameImage || "");
+                                          setServiceForm({ name: s.name, subtitle: s.subtitle, image: s.image || "", nameImage: s.nameImage || "", options: s.options.map((o) => ({ label: o.label, price: o.price, type: o.type || "basic" })) });
+                                          setShowServiceForm(true);
+                                          window.scrollTo({ top: 0, behavior: "smooth" });
+                                        }}
+                                        style={{ fontSize: 11, padding: "4px 10px", background: "rgba(79,142,247,0.1)", color: accent, border: `1px solid rgba(79,142,247,0.2)`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        onClick={() => setDeleteServiceId(s._id)}
+                                        style={{ fontSize: 11, padding: "4px 10px", background: "rgba(239,68,68,0.1)", color: "#F87171", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
+                                      >
+                                        Del
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <ServiceTierBoxes options={s.options || []} />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -1004,8 +1312,8 @@ export default function AdminPage() {
       {deleteServiceId && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: "1rem" }}>
           <div style={{ background: card, padding: "2rem", borderRadius: 18, width: "100%", maxWidth: 320, textAlign: "center", border: `1px solid ${border}` }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: text, marginBottom: 8 }}>Delete Service?</div>
-            <div style={{ fontSize: 13, color: muted, marginBottom: "1.5rem" }}>This service will be removed from the signup form.</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: text, marginBottom: 8 }}>Delete Service Entry?</div>
+            <div style={{ fontSize: 13, color: muted, marginBottom: "1.5rem" }}>This subtitle entry will be removed from the signup form.</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={handleDeleteService} style={{ flex: 1, padding: "11px", background: "linear-gradient(135deg,#DC2626,#EF4444)", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontFamily: "inherit" }}>Delete</button>
               <button onClick={() => setDeleteServiceId(null)} style={{ flex: 1, padding: "11px", background: dark ? "rgba(255,255,255,0.06)" : "#F3F4F6", color: text, border: `1px solid ${border}`, borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
