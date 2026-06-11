@@ -24,19 +24,19 @@ export async function GET() {
       .sort({ name: 1 })
       .toArray();
     return Response.json({ success: true, data: list });
-  } catch {
+  } catch (err) {
+    console.error("GET specialists error:", err);
     return Response.json({ success: false, message: "Server error" }, { status: 500 });
   }
 }
 
 // POST — admin only
-// body: { name, icon, subtitle, options: [{label, price, type}] }
 export async function POST(req) {
   try {
     const db = await getAdminDb();
     if (!db) return Response.json({ success: false, message: "Unauthorized" }, { status: 403 });
 
-    const { name, icon, subtitle, options } = await req.json();
+    const { name, subtitle, image, nameImage, options } = await req.json();
 
     if (!name?.trim()) {
       return Response.json({ success: false, message: "Specialist name required" }, { status: 400 });
@@ -47,19 +47,20 @@ export async function POST(req) {
 
     const result = await db.collection("specialists").insertOne({
       name: name.trim(),
-      icon: icon || "🔧",
       subtitle: subtitle?.trim() || "",
+      image: image || "",
+      nameImage: nameImage || "",
       options: options.map((o) => ({
         label: o.label,
         price: Number(o.price) || 0,
-        // ✅ type field — "basic" | "standard" | "premium", default "basic"
         type: ["basic", "standard", "premium"].includes(o.type) ? o.type : "basic",
       })),
       createdAt: new Date(),
     });
 
     return Response.json({ success: true, id: result.insertedId });
-  } catch {
+  } catch (err) {
+    console.error("POST specialists error:", err);
     return Response.json({ success: false, message: "Server error" }, { status: 500 });
   }
 }
@@ -77,7 +78,6 @@ export async function PATCH(req) {
       updates.options = updates.options.map((o) => ({
         label: o.label,
         price: Number(o.price) || 0,
-        // ✅ type preserve করো
         type: ["basic", "standard", "premium"].includes(o.type) ? o.type : "basic",
       }));
     }
@@ -88,7 +88,8 @@ export async function PATCH(req) {
     );
 
     return Response.json({ success: true });
-  } catch {
+  } catch (err) {
+    console.error("PATCH specialists error:", err);
     return Response.json({ success: false, message: "Server error" }, { status: 500 });
   }
 }
@@ -104,7 +105,8 @@ export async function DELETE(req) {
 
     await db.collection("specialists").deleteOne({ _id: new ObjectId(id) });
     return Response.json({ success: true });
-  } catch {
+  } catch (err) {
+    console.error("DELETE specialists error:", err);
     return Response.json({ success: false, message: "Server error" }, { status: 500 });
   }
 }

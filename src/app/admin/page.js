@@ -96,10 +96,6 @@ export default function AdminPage() {
   });
   const [serviceSaving, setServiceSaving] = useState(false);
   const [deleteServiceId, setDeleteServiceId] = useState(null);
-  const [imagePreview, setImagePreview] = useState("");
-  const imageInputRef = useRef(null);
-  const [nameImagePreview, setNameImagePreview] = useState("");
-  const nameImageInputRef = useRef(null);
 
   const [expandedGroups, setExpandedGroups] = useState({});
 
@@ -153,30 +149,6 @@ export default function AdminPage() {
     return msg.createdAt || msg.timestamp || msg.date || msg.sentAt || msg.time || msg.created_at || msg.updatedAt || "";
   };
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const base64 = ev.target.result;
-      setImagePreview(base64);
-      setServiceForm((p) => ({ ...p, image: base64 }));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleNameImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const base64 = ev.target.result;
-      setNameImagePreview(base64);
-      setServiceForm((p) => ({ ...p, nameImage: base64 }));
-    };
-    reader.readAsDataURL(file);
-  };
-
   useEffect(() => {
     const style = document.createElement("style");
     style.textContent = `
@@ -208,8 +180,6 @@ export default function AdminPage() {
       .admin-sidebar { transition: transform 0.3s; }
       .service-card-item:hover { opacity: 0.9; }
       .tier-box { border-radius: 8px; padding: 10px 12px; border: 1px solid; display: flex; flex-direction: column; gap: 3px; }
-      .img-upload-zone { border: 2px dashed; border-radius: 10px; padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s; }
-      .img-upload-zone:hover { opacity: 0.8; }
     `;
     document.head.appendChild(style);
     return () => document.head.removeChild(style);
@@ -290,8 +260,6 @@ export default function AdminPage() {
 
   const resetServiceForm = () => {
     setServiceForm({ name: "", subtitle: "", image: "", nameImage: "", options: [{ label: "", price: "", type: "basic" }] });
-    setImagePreview("");
-    setNameImagePreview("");
     setEditingService(null);
     setShowServiceForm(false);
   };
@@ -890,85 +858,35 @@ export default function AdminPage() {
                     </div>
                   </div>
 
-                  {/* Service Name (Group) Image */}
+                  {/* Service Name Image URL */}
                   <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-                      Service Name Image <span style={{ fontSize: 10, color: accent, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>(group cover — service নামের পাশে দেখাবে)</span>
+                    <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+                      Service Name Image URL <span style={{ fontSize: 10, color: accent, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>(group cover — service নামের পাশে দেখাবে)</span>
                     </div>
-                    <input ref={nameImageInputRef} type="file" accept="image/*" onChange={handleNameImageUpload} style={{ display: "none" }} />
-                    {nameImagePreview || serviceForm.nameImage ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <img
-                          src={nameImagePreview || serviceForm.nameImage}
-                          alt="name preview"
-                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, border: `1px solid ${border}` }}
-                        />
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          <button
-                            onClick={() => nameImageInputRef.current?.click()}
-                            style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${border}`, background: "transparent", color: accent, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
-                          >
-                            Change Image
-                          </button>
-                          <button
-                            onClick={() => { setNameImagePreview(""); setServiceForm((p) => ({ ...p, nameImage: "" })); }}
-                            style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#F87171", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        className="img-upload-zone"
-                        onClick={() => nameImageInputRef.current?.click()}
-                        style={{ borderColor: border, background: dark ? "rgba(255,255,255,0.02)" : "#F9FAFB", color: muted }}
-                      >
-                        <div style={{ fontSize: 28, marginBottom: 6 }}>🖼️</div>
-                        <div style={{ fontSize: 12, fontWeight: 600 }}>Click to upload service name cover image</div>
-                        <div style={{ fontSize: 11, marginTop: 3 }}>Group header-এ দেখাবে</div>
-                      </div>
+                    <input
+                      value={serviceForm.nameImage}
+                      onChange={(e) => setServiceForm((p) => ({ ...p, nameImage: e.target.value }))}
+                      placeholder="https://example.com/image.jpg"
+                      style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }}
+                    />
+                    {serviceForm.nameImage && (
+                      <img src={serviceForm.nameImage} alt="name preview" style={{ marginTop: 8, width: 72, height: 72, objectFit: "cover", borderRadius: 10, border: `1px solid ${border}` }} />
                     )}
                   </div>
 
-                  {/* Subtitle Image upload */}
+                  {/* Subtitle Image URL */}
                   <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-                      Subtitle Image <span style={{ fontSize: 10, color: muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>(এই subtitle-এর জন্য)</span>
+                    <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+                      Subtitle Image URL <span style={{ fontSize: 10, color: muted, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>(এই subtitle-এর জন্য)</span>
                     </div>
-                    <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageUpload} style={{ display: "none" }} />
-                    {imagePreview || serviceForm.image ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <img
-                          src={imagePreview || serviceForm.image}
-                          alt="preview"
-                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, border: `1px solid ${border}` }}
-                        />
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          <button
-                            onClick={() => imageInputRef.current?.click()}
-                            style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${border}`, background: "transparent", color: accent, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
-                          >
-                            Change Image
-                          </button>
-                          <button
-                            onClick={() => { setImagePreview(""); setServiceForm((p) => ({ ...p, image: "" })); }}
-                            style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#F87171", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        className="img-upload-zone"
-                        onClick={() => imageInputRef.current?.click()}
-                        style={{ borderColor: border, background: dark ? "rgba(255,255,255,0.02)" : "#F9FAFB", color: muted }}
-                      >
-                        <div style={{ fontSize: 28, marginBottom: 6 }}>📷</div>
-                        <div style={{ fontSize: 12, fontWeight: 600 }}>Click to upload subtitle image</div>
-                        <div style={{ fontSize: 11, marginTop: 3 }}>PNG, JPG, WebP supported</div>
-                      </div>
+                    <input
+                      value={serviceForm.image}
+                      onChange={(e) => setServiceForm((p) => ({ ...p, image: e.target.value }))}
+                      placeholder="https://example.com/image.jpg"
+                      style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }}
+                    />
+                    {serviceForm.image && (
+                      <img src={serviceForm.image} alt="subtitle preview" style={{ marginTop: 8, width: 72, height: 72, objectFit: "cover", borderRadius: 10, border: `1px solid ${border}` }} />
                     )}
                   </div>
 
@@ -1124,8 +1042,6 @@ export default function AdminPage() {
                                       <button
                                         onClick={() => {
                                           setEditingService(s);
-                                          setImagePreview(s.image || "");
-                                          setNameImagePreview(s.nameImage || "");
                                           setServiceForm({ name: s.name, subtitle: s.subtitle, image: s.image || "", nameImage: s.nameImage || "", options: s.options.map((o) => ({ label: o.label, price: o.price, type: o.type || "basic" })) });
                                           setShowServiceForm(true);
                                           window.scrollTo({ top: 0, behavior: "smooth" });
