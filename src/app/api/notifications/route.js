@@ -33,7 +33,7 @@ export async function GET(req) {
 export async function PATCH(req) {
   try {
     const { id } = await req.json();
-    const { ObjectId } = await import("mongodb");
+    const { ObjectId } = from ("mongodb");
 
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");

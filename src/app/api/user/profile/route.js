@@ -17,7 +17,7 @@ export async function PATCH(req) {
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
 
-    const { ObjectId } = await import("mongodb");
+    const { ObjectId } = from ("mongodb");
     await db.collection("users").updateOne(
       { _id: new ObjectId(payload.id) },
       { $set: { avatar } }

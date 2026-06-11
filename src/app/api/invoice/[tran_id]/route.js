@@ -50,7 +50,7 @@ export async function GET(req, { params }) {
     // Booking details fetch করি
     let booking = null;
     try {
-      const { ObjectId } = await import("mongodb");
+      const { ObjectId } = from ("mongodb");
       booking = await db.collection("bookings").findOne({ _id: new ObjectId(tx.bookingId) });
     } catch {
       // bookingId invalid হলেও invoice দেখাবো — booking info ছাড়া
