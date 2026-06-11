@@ -6,11 +6,21 @@ export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
     const servicemanId = searchParams.get("servicemanId");
+    // ✅ FIX: bookingId দিয়েও query করার support যোগ করা হলো।
+    // page.js এর restore() function এ এটা দরকার — payment এর পর
+    // review দেওয়া হয়েছে কিনা check করতে bookingId দিয়ে query করে।
+    const bookingId = searchParams.get("bookingId");
 
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
 
-    const query = servicemanId ? { servicemanId } : {};
+    let query = {};
+    if (bookingId) {
+      query = { bookingId };
+    } else if (servicemanId) {
+      query = { servicemanId };
+    }
+
     const reviews = await db.collection("reviews").find(query).sort({ createdAt: -1 }).toArray();
 
     return Response.json({ success: true, data: reviews });
@@ -55,7 +65,7 @@ export async function POST(req) {
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
 
-    // “Verify whether a review already exists for this booking.”
+    // "Verify whether a review already exists for this booking."
     const existing = await db.collection("reviews").findOne({ bookingId });
     if (existing) {
       return Response.json({ success: false, message: "Already reviewed" }, { status: 409 });
@@ -72,7 +82,7 @@ export async function POST(req) {
       createdAt: new Date(),
     });
 
-    // “Update the serviceman’s average rating.”
+    // "Update the serviceman's average rating."
     const allReviews = await db.collection("reviews").find({ servicemanId }).toArray();
     const avgRating = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length;
 

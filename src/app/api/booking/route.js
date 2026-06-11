@@ -15,7 +15,7 @@ const pusher = new Pusher({
 export async function POST(req) {
   try {
     const body = await req.json();
-    
+
     const service = sanitize(body.service || "");
     const option = body.option;
     const name = sanitize(body.name || "");
@@ -23,8 +23,9 @@ export async function POST(req) {
     const address = sanitize(body.address || "");
     const userId = sanitize(body.userId || "");
     const specialty = sanitize(body.specialty || "");
+    // ✅ serviceId save করি — page reload এর পর restore করতে কাজে লাগবে
+    const serviceId = body.serviceId ? sanitize(body.serviceId) : null;
     // scheduledAt — user এর preferred datetime। ISO string হিসেবে আসে।
-    // null/undefined হলে null রাখি, required না করি যাতে পুরোনো bookings break না করে।
     const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : null;
 
     if (!userId) {
@@ -56,33 +57,31 @@ export async function POST(req) {
       address,
       userId,
       specialty,
+      // ✅ serviceId এখন booking document এ store হবে
+      serviceId,
       status: "pending",
       createdAt: new Date(),
-      scheduledAt,  // null হলেও store করি — undefined vs null MongoDB তে আলাদা
+      scheduledAt,
     };
 
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
     const result = await db.collection("bookings").insertOne(booking);
 
-    // isOnline: { $ne: false } কেন?
-    // পুরোনো accounts এ isOnline field নেই (undefined)।
-    // isOnline: true দিলে তারা miss হয়ে যেত।
-    // $ne: false মানে — offline explicitly করেনি, তারা সবাই online।
-    // এটা backward-compatible — toggle ছাড়া পুরোনো accounts ও কাজ করবে।
+    // isOnline: { $ne: false } — backward-compatible online check
     const servicemen = await db
       .collection("users")
       .find({ role: "serviceman", specialty: specialty, isOnline: { $ne: false } })
       .toArray();
 
-    // cancelled বাদ দিতে হবে — cancelled booking কে active ধরা ঠিক না।
+    // শুধু "accepted" booking নেই এমন servicemen কে notify করবে
     const availableServicemen = [];
     for (const s of servicemen) {
-      const activeBookingCount = await db.collection("bookings").countDocuments({
+      const hasAcceptedBooking = await db.collection("bookings").findOne({
         servicemanId: s._id.toString(),
-        status: { $nin: ["completed", "cancelled"] },
+        status: "accepted",
       });
-      if (activeBookingCount === 0) {
+      if (!hasAcceptedBooking) {
         availableServicemen.push(s);
       }
     }
@@ -105,7 +104,6 @@ export async function POST(req) {
       await db.collection("notifications").insertMany(notifications);
     }
 
-    // Send real-time notification to available servicemen only
     for (const s of availableServicemen) {
       await pusher.trigger(`serviceman-${s._id.toString()}`, "new-booking", {
         _id: result.insertedId.toString(),
@@ -191,7 +189,6 @@ export async function PATCH(req) {
         { $set: { status: "cancelled" } }
       );
 
-      // Notify the serviceman who accepted the booking
       if (booking.servicemanId) {
         await pusher.trigger(`serviceman-${booking.servicemanId}`, "booking-cancelled", {
           bookingId: id,
@@ -213,9 +210,6 @@ export async function PATCH(req) {
       { $set: updateData }
     );
 
-    // Serviceman booking accept করলে user কে email পাঠাই।
-    // booking আর serviceman data একসাথে fetch করি — দুটো আলাদা call করা যেত
-    // কিন্তু এটা cleaner। Email failure টা response block করবে না।
     if (status === "accepted") {
       try {
         const booking = await db.collection("bookings").findOne({ _id: new ObjectId(id) });

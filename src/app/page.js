@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { services } from "../data/services";
+import Pusher from "pusher-js";
 import { translations, getLang, setLang } from "@/lib/translations";
 import LanguageToggle from "@/components/LanguageToggle";
 
@@ -30,11 +30,6 @@ const BellIcon = () => (
     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
   </svg>
 );
-const UserIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-  </svg>
-);
 const ChatIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
@@ -44,6 +39,11 @@ const ChatIcon = () => (
 export default function Home() {
   const router = useRouter();
   const fileInputRef = useRef(null);
+  const pusherRef = useRef(null);
+
+  const [services, setServices] = useState([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
+
   const [activeService, setActiveService] = useState(null);
   const [selectedOption, setSelectedOption] = useState(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -77,7 +77,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [lang, setLangState] = useState("en");
 
-  // ✅ Support / Customer Care chat state
+  // Support chat state
   const [showSupport, setShowSupport] = useState(false);
   const [supportMessages, setSupportMessages] = useState([]);
   const [supportInput, setSupportInput] = useState("");
@@ -85,7 +85,6 @@ export default function Home() {
   const [supportUnread, setSupportUnread] = useState(0);
   const supportEndRef = useRef(null);
 
-  // Load saved language on mount
   useEffect(() => {
     setLangState(getLang());
   }, []);
@@ -98,7 +97,34 @@ export default function Home() {
     setLang(next);
   };
 
-  // ✅ Support chat functions
+  const fetchServices = async () => {
+    setServicesLoading(true);
+    try {
+      const res = await fetch("/api/admin/specialists");
+      const data = await res.json();
+      if (data.success) setServices(data.data);
+    } catch (err) {
+      console.error("Failed to load services:", err);
+    } finally {
+      setServicesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchServices();
+  }, []);
+
+  const service = activeService
+    ? services.find((s) => s._id?.toString() === activeService)
+    : null;
+
+  const handleSelectService = (id) => {
+    setActiveService(id);
+    setSelectedOption(null);
+    setConfirmed(false);
+  };
+
+  // Support chat functions
   const loadSupportMessages = async () => {
     if (!user) return;
     try {
@@ -122,7 +148,7 @@ export default function Home() {
       });
       const d = await r.json();
       if (d.success) {
-        setSupportMessages(prev => [...prev, d.data]);
+        setSupportMessages((prev) => [...prev, d.data]);
         setSupportInput("");
         setTimeout(() => supportEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
       }
@@ -137,8 +163,8 @@ export default function Home() {
 
   useEffect(() => {
     fetch("/api/auth/me")
-      .then(r => r.json())
-      .then(data => {
+      .then((r) => r.json())
+      .then((data) => {
         if (data.success) {
           setUser(data.user);
           localStorage.setItem("user", JSON.stringify(data.user));
@@ -147,48 +173,177 @@ export default function Home() {
       });
   }, []);
 
+  // ✅ FIX: Restore active booking on page load/reload
+  // services load হওয়ার পর চলে — তাই services dependency আছে
+  // এতে activeService ও selectedOption সঠিকভাবে set হয়
   useEffect(() => {
-    if (!confirmed || !confirmedBooking) return;
+    if (!user || services.length === 0) return;
+
+    const restore = async () => {
+      try {
+        const res = await fetch("/api/booking");
+        const data = await res.json();
+        if (!data.success) return;
+
+        // এই user এর সবচেয়ে সাম্প্রতিক non-cancelled booking
+        const active = data.data
+          .filter((b) => b.userId === user.id && b.status !== "cancelled")
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+
+        if (!active) return;
+
+        // ✅ Form fields restore করি
+        setName(active.name || "");
+        setPhone(active.phone || "");
+        setAddress(active.address || "");
+        if (active.scheduledAt) setScheduledAt(new Date(active.scheduledAt).toISOString().slice(0, 16));
+
+        // ✅ Service restore — serviceId দিয়ে match করি
+        // পুরোনো bookings এ serviceId নাও থাকতে পারে, তখন service name দিয়ে fallback
+        const matchedService = active.serviceId
+          ? services.find((s) => s._id?.toString() === active.serviceId)
+          : services.find((s) => s.name === active.service);
+
+        if (matchedService) {
+          setActiveService(matchedService._id?.toString());
+        }
+
+        // ✅ Option restore
+        if (active.option !== undefined && active.option !== null) {
+          setSelectedOption(active.option);
+        }
+
+        setConfirmed(true);
+        setConfirmedBooking(active);
+
+        // ✅ Completed booking হলে payment ও review state restore করি
+        if (active.status === "completed") {
+          setIsCompleted(true);
+
+          if (active.paymentStatus === "paid") {
+            setPaymentStatus("paid");
+            // ✅ Payment হয়ে গেছে — review দেওয়া হয়নি এমন হলে popup দেখাই
+            // reviewed check করার জন্য reviews API call করি
+            try {
+              const rvRes = await fetch(`/api/reviews?bookingId=${active._id}`);
+              const rvData = await rvRes.json();
+              const alreadyReviewed = rvData.success && rvData.data?.length > 0;
+              if (!alreadyReviewed) {
+                setShowReviewPopup(true);
+              } else {
+                setReviewed(true);
+              }
+            } catch {
+              // review check fail হলে popup দেখাই না — silent fail
+            }
+          }
+        }
+
+        // ✅ Serviceman info fetch করি
+        if (active.servicemanId) {
+          try {
+            const smRes = await fetch(`/api/serviceman/${active.servicemanId}`);
+            const smData = await smRes.json();
+            if (smData.success) setServicemanInfo(smData.data);
+          } catch {}
+        }
+      } catch (err) {
+        console.error("Booking restore failed:", err);
+      }
+    };
+
+    restore();
+  }, [user, services]); // ✅ services load হলেই চলবে
+
+  // ✅ Pusher real-time listener
+  useEffect(() => {
+    if (!user) return;
+
+    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
+      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || "ap2",
+    });
+
+    const channel = pusher.subscribe(`user-${user.id}`);
+
+    channel.bind("booking-completed", (data) => {
+      setIsCompleted(true);
+      setUserNotifications((prev) => [
+        {
+          message: "Your service has been completed! Please complete your payment.",
+          service: confirmedBooking?.service || "",
+          createdAt: new Date().toISOString(),
+          read: false,
+        },
+        ...prev,
+      ]);
+    });
+
+    channel.bind("booking-cancelled", () => {
+      setConfirmed(false);
+      setConfirmedBooking(null);
+    });
+
+    // ✅ Payment successful — SSLCommerz redirect থেকে ফেরার পর review popup দেখাই
+    channel.bind("payment-successful", () => {
+      setPaymentStatus("paid");
+      setIsCompleted(true);
+      if (!reviewed) setShowReviewPopup(true);
+    });
+
+    pusherRef.current = pusher;
+
+    return () => {
+      pusher.unsubscribe(`user-${user.id}`);
+      pusher.disconnect();
+    };
+  }, [user]);
+
+  // Poll: serviceman accept করেছে কিনা দেখি
+  useEffect(() => {
+    if (!confirmed || !confirmedBooking?._id || confirmedBooking?.servicemanId) return;
+    const bookingId = confirmedBooking._id.toString();
     const interval = setInterval(async () => {
       const res = await fetch("/api/booking");
       const data = await res.json();
       if (data.success) {
-        const updated = data.data.find(b =>
-          b.userId === confirmedBooking.userId &&
-          b.service === confirmedBooking.service &&
-          b.createdAt === confirmedBooking.createdAt
-        );
+        const updated = data.data.find((b) => b._id?.toString() === bookingId);
         if (updated?.servicemanId) {
           setConfirmedBooking(updated);
-          setUserNotifications(prev => [{
-            message: "Your booking has been accepted!",
-            service: updated.service,
-            servicemanId: updated.servicemanId,
-            createdAt: new Date().toISOString(),
-            read: false,
-          }, ...prev]);
+          setUserNotifications((prev) => [
+            {
+              message: "Your booking has been accepted!",
+              service: updated.service,
+              servicemanId: updated.servicemanId,
+              createdAt: new Date().toISOString(),
+              read: false,
+            },
+            ...prev,
+          ]);
           fetch(`/api/serviceman/${updated.servicemanId}`)
-            .then(r => r.json())
-            .then(d => { if (d.success) setServicemanInfo(d.data); });
+            .then((r) => r.json())
+            .then((d) => { if (d.success) setServicemanInfo(d.data); });
           clearInterval(interval);
         }
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [confirmed]);
+  }, [confirmed, confirmedBooking?._id]);
 
+  // Poll: booking completed কিনা দেখি (Pusher fallback)
   useEffect(() => {
     if (!confirmedBooking?.servicemanId) return;
     const interval = setInterval(async () => {
       const res = await fetch("/api/booking");
       const data = await res.json();
       if (data.success) {
-        const updated = data.data.find(b =>
-          b._id?.toString() === confirmedBooking._id?.toString()
+        const updated = data.data.find(
+          (b) => b._id?.toString() === confirmedBooking._id?.toString()
         );
         if (updated?.status === "completed") {
           setIsCompleted(true);
-          if (updated.paymentStatus === "paid") setPaymentStatus("paid");
+          if (updated.paymentStatus === "paid") {
+            setPaymentStatus("paid");
+          }
           if (updated.paymentStatus === "paid" && !reviewed) setShowReviewPopup(true);
           clearInterval(interval);
         }
@@ -200,7 +355,7 @@ export default function Home() {
   const fetchBookingHistory = async (userId) => {
     const res = await fetch("/api/booking");
     const data = await res.json();
-    if (data.success) setBookingHistory(data.data.filter(b => b.userId === userId));
+    if (data.success) setBookingHistory(data.data.filter((b) => b.userId === userId));
   };
 
   const fetchTransactions = async () => {
@@ -219,7 +374,7 @@ export default function Home() {
       const res = await fetch("/api/booking");
       const data = await res.json();
       if (!data.success) return;
-      const userBookings = data.data.filter(b => b.userId === userId && b.servicemanId);
+      const userBookings = data.data.filter((b) => b.userId === userId && b.servicemanId);
       const messageGroups = await Promise.all(
         userBookings.map(async (booking) => {
           const msgRes = await fetch(`/api/chat?bookingId=${booking._id}`);
@@ -237,11 +392,13 @@ export default function Home() {
             service: booking.service,
             servicemanName,
             messages: msgData.success ? msgData.data : [],
-            lastMessage: msgData.success && msgData.data.length > 0 ? msgData.data[msgData.data.length - 1] : null,
+            lastMessage: msgData.success && msgData.data.length > 0
+              ? msgData.data[msgData.data.length - 1]
+              : null,
           };
         })
       );
-      setAllMessages(messageGroups.filter(g => g.messages.length > 0));
+      setAllMessages(messageGroups.filter((g) => g.messages.length > 0));
     } catch (err) { console.error(err); }
     finally { setMessagesLoading(false); }
   };
@@ -301,7 +458,6 @@ export default function Home() {
     }
   };
 
-  // Cancel booking handler
   const handleCancelBooking = async (bookingId) => {
     if (!confirm(t.cancelConfirm)) return;
     try {
@@ -312,8 +468,10 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.success) {
-        setBookingHistory(prev =>
-          prev.map(b => b._id?.toString() === bookingId ? { ...b, status: "cancelled" } : b)
+        setBookingHistory((prev) =>
+          prev.map((b) =>
+            b._id?.toString() === bookingId ? { ...b, status: "cancelled" } : b
+          )
         );
       } else {
         alert(data.message || "Failed to cancel booking");
@@ -323,18 +481,12 @@ export default function Home() {
     }
   };
 
-  const service = activeService ? services[activeService] : null;
-
-  const handleSelectService = (key) => {
-    setActiveService(key);
-    setSelectedOption(null);
-    setConfirmed(false);
-  };
-
   const handleOpenModal = () => {
     const storedUser = JSON.parse(localStorage.getItem("user"));
     if (!storedUser) { router.push("/login"); return; }
-    if (!activeService || selectedOption === null) { alert("Please select a service and package"); return; }
+    if (!activeService || selectedOption === null) {
+      alert("Please select a service and package"); return;
+    }
     if (!name || !phone || !address) { alert("Please fill all fields"); return; }
     if (!scheduledAt) { alert("Please select a preferred date & time"); return; }
     setShowModal(true);
@@ -348,7 +500,18 @@ export default function Home() {
       const response = await fetch("/api/booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ service: activeService, option: selectedOption, name, phone, address, userId: user.id, specialty: services[activeService]?.specialty, scheduledAt }),
+        body: JSON.stringify({
+          service: service?.name,
+          option: selectedOption,
+          name,
+          phone,
+          address,
+          userId: user.id,
+          specialty: service?.name,
+          // ✅ serviceId পাঠাই — booking restore এর জন্য দরকার
+          serviceId: activeService,
+          scheduledAt,
+        }),
       });
       const result = await response.json();
       if (result.success) {
@@ -428,7 +591,7 @@ export default function Home() {
     window.location.href = `tel:${phoneNumber}`;
   };
 
-  const unreadCount = userNotifications.filter(n => !n.read).length;
+  const unreadCount = userNotifications.filter((n) => !n.read).length;
 
   const inputStyle = {
     width: "100%", padding: "10px 12px", marginBottom: 8,
@@ -437,14 +600,32 @@ export default function Home() {
     background: "#FAFAFA", outline: "none", boxSizing: "border-box",
   };
 
-  const statusColor = { pending: "#F59E0B", accepted: "#3B82F6", completed: "#22C55E", cancelled: "#DC2626" };
-  const formatDate = (date) => new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+  const statusColor = {
+    pending: "#F59E0B", accepted: "#3B82F6",
+    completed: "#22C55E", cancelled: "#DC2626",
+  };
+
+  const formatDate = (date) =>
+    new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+
+  const formatPrice = (price) => `৳${Number(price).toLocaleString()}`;
+
+  const filteredServices = services.filter((s) =>
+    !searchQuery ||
+    s.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    s.subtitle?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const tabs = [
     { key: "profile", label: t.profile },
     { key: "history", label: t.history },
     { key: "transactions", label: t.payments },
-    { key: "notifications", label: unreadCount > 0 ? `${t.notifHeader} (${unreadCount})` : t.notifHeader },
+    {
+      key: "notifications",
+      label: unreadCount > 0
+        ? `${t.notifHeader} (${unreadCount})`
+        : t.notifHeader,
+    },
     { key: "messages", label: t.messages },
   ];
 
@@ -485,19 +666,19 @@ export default function Home() {
       {/* Sidebar */}
       {showSidebar && (
         <div onClick={() => setShowSidebar(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(10,37,64,0.5)" }}>
-          <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 300, background: "#fff", display: "flex", flexDirection: "column" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 300, background: "#fff", display: "flex", flexDirection: "column" }}>
             <div style={{ background: "#0A2540", padding: "1.25rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>My Account</div>
               <button onClick={() => setShowSidebar(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9AAFC7" }}><CloseIcon /></button>
             </div>
             <div style={{ display: "flex", borderBottom: "1px solid #E5E7EB", overflowX: "auto" }}>
-              {tabs.map(t => (
-                <button key={t.key} onClick={() => {
-                  setSidebarTab(t.key);
-                  if (t.key === "messages") fetchAllMessages(user.id);
-                  if (t.key === "transactions") fetchTransactions();
-                }} style={{ flex: 1, padding: "10px 4px", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", background: sidebarTab === t.key ? "#F0FBF6" : "#fff", color: sidebarTab === t.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === t.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
-                  {t.label}
+              {tabs.map((tab) => (
+                <button key={tab.key} onClick={() => {
+                  setSidebarTab(tab.key);
+                  if (tab.key === "messages") fetchAllMessages(user.id);
+                  if (tab.key === "transactions") fetchTransactions();
+                }} style={{ flex: 1, padding: "10px 4px", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", background: sidebarTab === tab.key ? "#F0FBF6" : "#fff", color: sidebarTab === tab.key ? "#1D9E75" : "#888780", borderBottom: sidebarTab === tab.key ? "2px solid #1D9E75" : "2px solid transparent" }}>
+                  {tab.label}
                 </button>
               ))}
             </div>
@@ -509,11 +690,13 @@ export default function Home() {
                   <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
                     <div style={{ position: "relative", display: "inline-block" }}>
                       <div style={{ width: 72, height: 72, borderRadius: "50%", overflow: "hidden", border: "3px solid #1D9E75", margin: "0 auto" }}>
-                        {userAvatar ? <img src={userAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (
-                          <div style={{ width: "100%", height: "100%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <span style={{ fontSize: 26, fontWeight: 700, color: "#1D9E75" }}>{user?.name?.charAt(0).toUpperCase()}</span>
-                          </div>
-                        )}
+                        {userAvatar
+                          ? <img src={userAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          : (
+                            <div style={{ width: "100%", height: "100%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <span style={{ fontSize: 26, fontWeight: 700, color: "#1D9E75" }}>{user?.name?.charAt(0).toUpperCase()}</span>
+                            </div>
+                          )}
                       </div>
                       <button onClick={() => fileInputRef.current?.click()} disabled={avatarLoading} style={{ position: "absolute", bottom: 0, right: 0, width: 26, height: 26, borderRadius: "50%", background: "#1D9E75", border: "2px solid #fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                         {avatarLoading ? <span style={{ fontSize: 8, color: "#fff" }}>...</span> : (
@@ -564,12 +747,8 @@ export default function Home() {
                             </button>
                           )}
                         </div>
-                        {/* Cancel button — only for pending bookings */}
                         {b.status === "pending" && (
-                          <button
-                            onClick={() => handleCancelBooking(b._id?.toString())}
-                            style={{ width: "100%", marginTop: 6, fontSize: 11, color: "#DC2626", background: "#FFF5F5", border: "1px solid #FECACA", borderRadius: 7, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
-                          >
+                          <button onClick={() => handleCancelBooking(b._id?.toString())} style={{ width: "100%", marginTop: 6, fontSize: 11, color: "#DC2626", background: "#FFF5F5", border: "1px solid #FECACA", borderRadius: 7, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
                             Cancel Booking
                           </button>
                         )}
@@ -591,75 +770,58 @@ export default function Home() {
                     </div>
                   ) : (
                     <>
-                      {/* Summary card */}
                       <div style={{ background: "#F0FBF6", borderRadius: 10, padding: "12px 14px", marginBottom: 12, border: "1px solid #9FE1CB" }}>
                         <div style={{ fontSize: 11, color: "#0F6E56", fontWeight: 600, marginBottom: 4 }}>Total Paid</div>
                         <div style={{ fontSize: 22, fontWeight: 700, color: "#1D9E75" }}>
-                          ৳{transactions.filter(t => t.status === "paid").reduce((s, t) => s + (t.amount || 0), 0).toLocaleString()}
+                          ৳{transactions.filter((tx) => tx.status === "paid").reduce((s, tx) => s + (tx.amount || 0), 0).toLocaleString()}
                         </div>
                         <div style={{ fontSize: 11, color: "#888780", marginTop: 4 }}>
-                          {transactions.filter(t => t.status === "paid").length} ${t.successfulPayments}
+                          {transactions.filter((tx) => tx.status === "paid").length} {t.successfulPayments}
                         </div>
                       </div>
-
-                      {/* Per-transaction cards — each linked to its booking */}
-                      {transactions.map((t, i) => {
-                        const isPaid = t.status === "paid";
-                        const bk = t.booking; // populated by backend $lookup
-
+                      {transactions.map((tx, i) => {
+                        const isPaid = tx.status === "paid";
+                        const bk = tx.booking;
                         return (
                           <div key={i} style={{ background: "#F9FAFB", borderRadius: 12, marginBottom: 10, border: `1px solid ${isPaid ? "#9FE1CB" : "#FDE68A"}`, overflow: "hidden" }}>
-
-                            {/* Top row: amount + badge */}
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 13px 8px" }}>
                               <span style={{ fontSize: 16, fontWeight: 700, color: isPaid ? "#1D9E75" : "#92400E" }}>
-                                ৳{(t.amount || 0).toLocaleString()}
+                                ৳{(tx.amount || 0).toLocaleString()}
                               </span>
                               <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 6, background: isPaid ? "#DCFCE7" : "#FEF3C7", color: isPaid ? "#166534" : "#92400E" }}>
-                                {isPaid ? "✓ Paid" : t.status}
+                                {isPaid ? "✓ Paid" : tx.status}
                               </span>
                             </div>
-
-                            {/* Booking details section — এটাই নতুন অংশ */}
                             {bk && (
                               <div style={{ margin: "0 13px 10px", background: "#fff", borderRadius: 8, padding: "9px 11px", border: "1px solid #E5E7EB" }}>
-                                <div style={{ fontSize: 10, color: "#888780", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-                                  Booking details
-                                </div>
+                                <div style={{ fontSize: 10, color: "#888780", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Booking details</div>
                                 {[
                                   [t.service, bk.service],
                                   [t.package, bk.option !== undefined ? `Option ${bk.option + 1}` : "—"],
                                   [t.customer, bk.name],
                                   [t.address, bk.address],
-                                ].map(([label, val]) => (
-                                  <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "2px 0" }}>
+                                ].map(([label, val], idx, arr) => (
+                                  <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "4px 0", borderBottom: idx < arr.length - 1 ? "1px solid #F0F2F5" : "none" }}>
                                     <span style={{ color: "#888780" }}>{label}</span>
                                     <span style={{ fontWeight: 600, color: "#2C2C2A", maxWidth: "60%", textAlign: "right", wordBreak: "break-word" }}>{val || "—"}</span>
                                   </div>
                                 ))}
-                                {/* Booking date */}
                                 {bk.createdAt && (
-                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "2px 0" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "4px 0" }}>
                                     <span style={{ color: "#888780" }}>Booked on</span>
-                                    <span style={{ fontWeight: 600, color: "#2C2C2A" }}>
-                                      {new Date(bk.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
-                                    </span>
+                                    <span style={{ fontWeight: 600, color: "#2C2C2A" }}>{new Date(bk.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
                                   </div>
                                 )}
                               </div>
                             )}
-
-                            {/* Footer: transaction ID + paid timestamp */}
                             <div style={{ padding: "0 13px 11px" }}>
-                              <div style={{ fontSize: 10, color: "#B4B2A9", fontFamily: "monospace", wordBreak: "break-all", marginBottom: 2 }}>
-                                {t.transactionId}
-                              </div>
+                              <div style={{ fontSize: 10, color: "#B4B2A9", fontFamily: "monospace", wordBreak: "break-all", marginBottom: 2 }}>{tx.transactionId}</div>
                               <div style={{ fontSize: 10, color: "#B4B2A9" }}>
-                                {isPaid && t.paidAt
-                                  ? `Paid: ${new Date(t.paidAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
-                                  : t.createdAt
-                                  ? `Initiated: ${new Date(t.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
-                                  : "—"}
+                                {isPaid && tx.paidAt
+                                  ? `Paid: ${new Date(tx.paidAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                                  : tx.createdAt
+                                    ? `Initiated: ${new Date(tx.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                                    : "—"}
                               </div>
                             </div>
                           </div>
@@ -677,7 +839,7 @@ export default function Home() {
                     <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>No notifications yet</div>
                   ) : (
                     userNotifications.map((n, i) => (
-                      <div key={i} onClick={() => setUserNotifications(prev => prev.map((item, idx) => idx === i ? { ...item, read: true } : item))} style={{ background: n.read ? "#F9FAFB" : "#F0FBF6", borderRadius: 10, padding: "10px 14px", marginBottom: 8, border: `1px solid ${n.read ? "#E5E7EB" : "#9FE1CB"}`, cursor: "pointer" }}>
+                      <div key={i} onClick={() => setUserNotifications((prev) => prev.map((item, idx) => idx === i ? { ...item, read: true } : item))} style={{ background: n.read ? "#F9FAFB" : "#F0FBF6", borderRadius: 10, padding: "10px 14px", marginBottom: 8, border: `1px solid ${n.read ? "#E5E7EB" : "#9FE1CB"}`, cursor: "pointer" }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: "#2C2C2A", marginBottom: 4 }}>{n.message}</div>
                         <div style={{ fontSize: 11, color: "#888780", marginBottom: 4 }}>{n.service}</div>
                         {n.servicemanId && (
@@ -740,24 +902,33 @@ export default function Home() {
         </div>
       )}
 
-      {/* Overlay Modal */}
-      {showModal && (
+      {/* Booking Confirmation Modal */}
+      {showModal && service && (
         <div onClick={() => setShowModal(false)} style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(10,37,64,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1.25rem" }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 360, padding: "1.5rem", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 360, padding: "1.5rem", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: "#2C2C2A" }}>Confirm Booking</div>
               <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#888780", padding: 4 }}><CloseIcon /></button>
             </div>
             <div style={{ background: "#F0FBF6", border: "1px solid #9FE1CB", borderRadius: 10, padding: "10px 14px", marginBottom: "1.25rem" }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#0F6E56", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Order Summary</div>
-              {[[t.service, `${service.icon} ${service.title}`], ["Package", service?.options[selectedOption]?.name], [t.price, service?.options[selectedOption]?.price]].map(([label, val]) => (
+              {[
+                [t.service, `${service.icon} ${service.name}`],
+                ["Package", service.options[selectedOption]?.label],
+                [t.price, formatPrice(service.options[selectedOption]?.price)],
+              ].map(([label, val]) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0" }}>
                   <span style={{ color: "#0F6E56" }}>{label}</span>
                   <span style={{ fontWeight: 600, color: "#2C2C2A" }}>{val}</span>
                 </div>
               ))}
               <div style={{ borderTop: "1px solid #9FE1CB", marginTop: 8, paddingTop: 8 }}>
-                {[[t.name, name], [t.phone, phone], ["Address", address], [t.scheduled, scheduledAt ? new Date(scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"]].map(([label, val]) => (
+                {[
+                  [t.name, name],
+                  [t.phone, phone],
+                  ["Address", address],
+                  [t.scheduled, scheduledAt ? new Date(scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"],
+                ].map(([label, val]) => (
                   <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "2px 0" }}>
                     <span style={{ color: "#0F6E56" }}>{label}</span>
                     <span style={{ fontWeight: 600, color: "#2C2C2A", maxWidth: "60%", textAlign: "right", wordBreak: "break-word" }}>{val}</span>
@@ -798,7 +969,9 @@ export default function Home() {
               </button>
               <button onClick={() => handleOpenSidebar("profile")} style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid #1D9E75", color: "#5DCAA5", borderRadius: 8, padding: "5px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
                 <div style={{ width: 22, height: 22, borderRadius: "50%", overflow: "hidden", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  {userAvatar ? <img src={userAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>{user?.name?.charAt(0).toUpperCase()}</span>}
+                  {userAvatar
+                    ? <img src={userAvatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    : <span style={{ fontSize: 10, fontWeight: 700, color: "#fff" }}>{user?.name?.charAt(0).toUpperCase()}</span>}
                 </div>
                 {user.name}
               </button>
@@ -813,9 +986,9 @@ export default function Home() {
         <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", marginBottom: 4 }}>Trusted Home Services</div>
         <div style={{ fontSize: 13, color: "#9AAFC7" }}>Professional helpers, right at your door</div>
         <div style={{ display: "flex", gap: 14, marginTop: "1rem" }}>
-          {[t.badge1, t.badge2, t.badge3].map((t) => (
-            <div key={t} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#7BAEC8" }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />{t}
+          {[t.badge1, t.badge2, t.badge3].map((badge) => (
+            <div key={badge} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#7BAEC8" }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#1D9E75", flexShrink: 0 }} />{badge}
             </div>
           ))}
         </div>
@@ -830,11 +1003,9 @@ export default function Home() {
       <div style={{ padding: "1.25rem" }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.75rem" }}>Choose a service</div>
 
-        {/* Search box — local filter, no API call দরকার নেই কারণ services data static।
-            real-time filter হয় client-side এ, UX অনেক faster হয়। */}
         <div style={{ position: "relative", marginBottom: "0.75rem" }}>
           <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#888780" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           <input
             placeholder={t.searchPlaceholder}
@@ -844,63 +1015,72 @@ export default function Home() {
           />
           {searchQuery && (
             <button onClick={() => setSearchQuery("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#888780", padding: 2, display: "flex", alignItems: "center" }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
           )}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-          {/* searchQuery দিয়ে title + subtitle filter করা হচ্ছে, case-insensitive */}
-          {Object.entries(services).filter(([, s]) =>
-            !searchQuery || s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.subtitle?.toLowerCase().includes(searchQuery.toLowerCase())
-          ).map(([key, s]) => (
-            <div key={key} onClick={() => handleSelectService(key)} style={{ background: activeService === key ? "#F0FBF6" : "#fff", border: activeService === key ? "1.5px solid #1D9E75" : "1px solid #E5E7EB", borderRadius: 12, padding: "12px 8px", textAlign: "center", cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
-              <div style={{ fontSize: 22, marginBottom: 5, lineHeight: 1 }}>{s.icon}</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#2C2C2A", lineHeight: 1.3 }}>{s.title}</div>
-              <div style={{ fontSize: 10, color: "#888780", marginTop: 2, lineHeight: 1.3 }}>{s.subtitle}</div>
-            </div>
-          ))}
-          {searchQuery && Object.entries(services).filter(([, s]) =>
-            s.title.toLowerCase().includes(searchQuery.toLowerCase()) || s.subtitle?.toLowerCase().includes(searchQuery.toLowerCase())
-          ).length === 0 && (
-            <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "1.5rem 0", color: "#888780", fontSize: 13 }}>
-              No services found for &ldquo;{searchQuery}&rdquo;
-            </div>
-          )}
-        </div>
+        {servicesLoading ? (
+          <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
+            Loading services...
+          </div>
+        ) : services.length === 0 ? (
+          <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>🛠️</div>
+            No services available yet
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            {filteredServices.map((s) => {
+              const sid = s._id?.toString();
+              return (
+                <div key={sid} onClick={() => handleSelectService(sid)} style={{ background: activeService === sid ? "#F0FBF6" : "#fff", border: activeService === sid ? "1.5px solid #1D9E75" : "1px solid #E5E7EB", borderRadius: 12, padding: "12px 8px", textAlign: "center", cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
+                  <div style={{ fontSize: 22, marginBottom: 5, lineHeight: 1 }}>{s.icon}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#2C2C2A", lineHeight: 1.3 }}>{s.name}</div>
+                  <div style={{ fontSize: 10, color: "#888780", marginTop: 2, lineHeight: 1.3 }}>{s.subtitle}</div>
+                </div>
+              );
+            })}
+            {searchQuery && filteredServices.length === 0 && (
+              <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "1.5rem 0", color: "#888780", fontSize: 13 }}>
+                No services found for &ldquo;{searchQuery}&rdquo;
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Detail Panel */}
+      {/* Service Detail Panel */}
       {service && (
         <div style={{ padding: "0 1.25rem 1.5rem" }}>
           {!confirmed ? (
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "1rem" }}>
-                <span style={{ fontSize: 20 }}>{service?.icon}</span>
+                <span style={{ fontSize: 20 }}>{service.icon}</span>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#2C2C2A" }}>{service?.title}</div>
-                  <div style={{ fontSize: 12, color: "#888780", marginTop: 1 }}>{service?.subtitle}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#2C2C2A" }}>{service.name}</div>
+                  <div style={{ fontSize: 12, color: "#888780", marginTop: 1 }}>{service.subtitle}</div>
                 </div>
               </div>
-              {service?.options?.map((opt, i) => (
+
+              {service.options?.map((opt, i) => (
                 <div key={i} onClick={() => setSelectedOption(i)} style={{ background: selectedOption === i ? "#F0FBF6" : "#fff", border: selectedOption === i ? "1.5px solid #1D9E75" : "1px solid #E5E7EB", borderRadius: 12, padding: "12px 14px", marginBottom: 8, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", WebkitTapHighlightColor: "transparent" }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#2C2C2A" }}>{opt.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#2C2C2A" }}>{opt.label}</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "#1D9E75", whiteSpace: "nowrap" }}>{opt.price}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#1D9E75", whiteSpace: "nowrap" }}>{formatPrice(opt.price)}</span>
                     <div style={{ width: 18, height: 18, borderRadius: "50%", background: selectedOption === i ? "#1D9E75" : "transparent", border: selectedOption === i ? "1.5px solid #1D9E75" : "1.5px solid #B4B2A9", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       {selectedOption === i && <CheckMark />}
                     </div>
                   </div>
                 </div>
               ))}
+
               <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: "14px", marginBottom: "1rem" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Your Details</div>
                 <input placeholder={t.namePlaceholder} value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
                 <input placeholder={t.phonePlaceholder} value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
                 <input placeholder={t.addressPlaceholder} value={address} onChange={(e) => setAddress(e.target.value)} style={inputStyle} />
-                {/* Scheduling — user নির্দিষ্ট time দিতে পারবে।
-                    min = এখন থেকে 1 ঘন্টা পরে, কারণ immediate booking এর জন্য
-                    কমপক্ষে 1 ঘন্টার lead time দরকার। */}
                 <div style={{ marginBottom: 0 }}>
                   <div style={{ fontSize: 11, color: "#888780", marginBottom: 4, fontWeight: 600 }}>Preferred Date & Time *</div>
                   <input
@@ -927,9 +1107,9 @@ export default function Home() {
               </div>
               <div style={{ background: "#F0FBF6", borderRadius: 10, padding: "10px 14px", marginBottom: "1rem", textAlign: "left" }}>
                 {[
-                  ["Service", `${service.icon} ${service.title}`],
-                  ["Package", service.options[selectedOption]?.name],
-                  ["Price", service.options[selectedOption]?.price],
+                  ["Service", `${service.icon} ${service.name}`],
+                  ["Package", service.options[selectedOption]?.label],
+                  ["Price", formatPrice(service.options[selectedOption]?.price)],
                   ["Name", name],
                   ["Phone", phone],
                   ["Scheduled", scheduledAt ? new Date(scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"],
@@ -942,6 +1122,7 @@ export default function Home() {
                 ))}
               </div>
 
+              {/* ✅ Payment section — booking complete হলে দেখাবে */}
               {isCompleted && (
                 <div style={{ marginBottom: 12 }}>
                   {paymentStatus === "paid" ? (
@@ -960,7 +1141,7 @@ export default function Home() {
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
                               <rect x="1" y="4" width="22" height="16" rx="2" /><line x1="1" y1="10" x2="23" y2="10" />
                             </svg>
-                            Pay Now — {service.options[selectedOption]?.price}
+                            Pay Now — {formatPrice(service.options[selectedOption]?.price)}
                           </>
                         )}
                       </button>
@@ -969,12 +1150,15 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Serviceman info card */}
               {confirmedBooking?.servicemanId && servicemanInfo ? (
                 <div style={{ background: "#F0FBF6", borderRadius: 12, border: "1px solid #9FE1CB", padding: "14px", marginBottom: 8, textAlign: "left" }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#0F6E56", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Your Serviceman</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
                     <div style={{ width: 44, height: 44, borderRadius: "50%", overflow: "hidden", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      {servicemanInfo.avatar ? <img src={servicemanInfo.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{servicemanInfo.name?.charAt(0).toUpperCase()}</span>}
+                      {servicemanInfo.avatar
+                        ? <img src={servicemanInfo.avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        : <span style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{servicemanInfo.name?.charAt(0).toUpperCase()}</span>}
                     </div>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "#2C2C2A" }}>{servicemanInfo.name}</div>
@@ -1030,10 +1214,10 @@ export default function Home() {
           )}
         </div>
       )}
-      {/* ✅ Customer Care floating button — শুধু logged-in user দেখবে */}
+
+      {/* Customer Support floating button */}
       {user && (
         <>
-          {/* Floating button */}
           <button
             onClick={openSupport}
             style={{
@@ -1054,10 +1238,8 @@ export default function Home() {
             )}
           </button>
 
-          {/* Support chat modal */}
           {showSupport && (
             <div style={{ position: "fixed", bottom: 88, right: 24, zIndex: 1000, width: 320, background: "#fff", borderRadius: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", border: "1px solid #E5E7EB", display: "flex", flexDirection: "column", maxHeight: 420 }}>
-              {/* Header */}
               <div style={{ background: "#0A2540", borderRadius: "16px 16px 0 0", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#1D9E75", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1076,8 +1258,6 @@ export default function Home() {
                   </svg>
                 </button>
               </div>
-
-              {/* Messages */}
               <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, minHeight: 200, maxHeight: 280 }}>
                 {supportMessages.length === 0 ? (
                   <div style={{ textAlign: "center", color: "#888780", fontSize: 12, marginTop: 40 }}>
@@ -1089,7 +1269,8 @@ export default function Home() {
                   supportMessages.map((msg, i) => (
                     <div key={i} style={{ display: "flex", justifyContent: msg.senderRole === "admin" ? "flex-start" : "flex-end" }}>
                       <div style={{
-                        maxWidth: "75%", padding: "8px 12px", borderRadius: msg.senderRole === "admin" ? "4px 12px 12px 12px" : "12px 4px 12px 12px",
+                        maxWidth: "75%", padding: "8px 12px",
+                        borderRadius: msg.senderRole === "admin" ? "4px 12px 12px 12px" : "12px 4px 12px 12px",
                         background: msg.senderRole === "admin" ? "#F0F2F5" : "#1D9E75",
                         color: msg.senderRole === "admin" ? "#2C2C2A" : "#fff",
                         fontSize: 12, lineHeight: 1.5,
@@ -1105,13 +1286,11 @@ export default function Home() {
                 )}
                 <div ref={supportEndRef} />
               </div>
-
-              {/* Input */}
               <div style={{ padding: "10px 14px", borderTop: "1px solid #E5E7EB", display: "flex", gap: 8 }}>
                 <input
                   value={supportInput}
-                  onChange={e => setSupportInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && sendSupportMessage()}
+                  onChange={(e) => setSupportInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && sendSupportMessage()}
                   placeholder="Type a message..."
                   style={{ flex: 1, padding: "8px 12px", border: "1px solid #E5E7EB", borderRadius: 20, fontSize: 12, outline: "none", fontFamily: "inherit" }}
                 />

@@ -1,182 +1,317 @@
-// Next.js App Router এ binary response (PDF) পাঠাতে হলে
-// standard Response object ব্যবহার করতে হয় — এটাই web standard।
-// pdfkit একটা Node.js stream দেয়, সেটাকে Buffer এ convert করে
-// Response এ দিই।
-
 import clientPromise from "@/lib/mongodb";
-import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/jwt";
+import { cookies } from "next/headers";
 
+// GET /api/invoice/[tran_id]
+// tran_id = transactionId string (e.g. TXN-6a2b...-1234567890)
+// Returns an HTML page that auto-prints as a PDF invoice.
+// Auth: user, serviceman, or admin — must own the transaction.
 export async function GET(req, { params }) {
   try {
-    // Auth check — শুধু logged-in user নিজের invoice দেখতে পারবে
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
-    if (!token) return new Response("Unauthorized", { status: 401 });
+    if (!token) {
+      return new Response("Unauthorized", { status: 401 });
+    }
 
     const payload = await verifyToken(token);
-    if (!payload) return new Response("Unauthorized", { status: 401 });
+    if (!payload) {
+      return new Response("Unauthorized", { status: 401 });
+    }
 
     const { tran_id } = await params;
+    if (!tran_id) {
+      return new Response("Transaction ID required", { status: 400 });
+    }
 
     const client = await clientPromise;
     const db = client.db("fixnext-sheba");
 
     // Transaction খুঁজি
     const tx = await db.collection("transactions").findOne({ transactionId: tran_id });
-    if (!tx) return new Response("Transaction not found", { status: 404 });
-
-    // Admin ছাড়া অন্যরা শুধু নিজের transaction দেখতে পারবে
-    if (payload.role !== "admin" && tx.userId !== payload.id) {
-      return new Response("Forbidden", { status: 403 });
+    if (!tx) {
+      return new Response("Transaction not found", { status: 404 });
     }
 
-    // Booking details populate করি
+    // Authorization: নিজের transaction কিনা check করি
+    // admin সব দেখতে পারবে, user ও serviceman শুধু নিজেরটা
+    if (payload.role !== "admin" && tx.userId !== payload.id) {
+      // serviceman check — booking এর servicemanId দিয়ে
+      if (payload.role === "serviceman") {
+        const booking = await db.collection("bookings").findOne({ _id: tx.bookingId });
+        if (!booking || booking.servicemanId !== payload.id) {
+          return new Response("Forbidden", { status: 403 });
+        }
+      } else {
+        return new Response("Forbidden", { status: 403 });
+      }
+    }
+
+    // Booking details fetch করি
     let booking = null;
-    if (tx.bookingId) {
+    try {
       const { ObjectId } = await import("mongodb");
       booking = await db.collection("bookings").findOne({ _id: new ObjectId(tx.bookingId) });
+    } catch {
+      // bookingId invalid হলেও invoice দেখাবো — booking info ছাড়া
     }
 
-    // User details
-const user = await db.collection("users").findOne(
-  { _id: { $in: [] } } // placeholder
-);
-   
+    const isPaid = tx.status === "paid";
+    const paidDate = tx.paidAt
+      ? new Date(tx.paidAt).toLocaleString("en-GB", {
+          day: "2-digit", month: "long", year: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        })
+      : "—";
+    const createdDate = tx.createdAt
+      ? new Date(tx.createdAt).toLocaleString("en-GB", {
+          day: "2-digit", month: "long", year: "numeric",
+          hour: "2-digit", minute: "2-digit",
+        })
+      : "—";
 
-    // ── PDF Generate ────────────────────────────────────────────────────────
-    // pdfkit একটা EventEmitter-based stream। Next.js এ await করার জন্য
-    // Promise দিয়ে wrap করতে হয়।
-    const PDFDocument = (await import("pdfkit")).default;
+    const amount = (tx.amount || 0).toLocaleString();
 
-    const pdfBuffer = await new Promise((resolve, reject) => {
-      const doc = new PDFDocument({ margin: 50, size: "A4" });
-      const chunks = [];
+    // HTML invoice — print-ready, responsive
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Invoice — ${tran_id}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #F0F2F5;
+      color: #2C2C2A;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+    .invoice {
+      background: #fff;
+      max-width: 680px;
+      width: 100%;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+    }
+    .header {
+      background: #0A2540;
+      padding: 2rem 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-icon {
+      width: 44px; height: 44px; background: #1D9E75;
+      border-radius: 10px; display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+    }
+    .brand-name { font-size: 20px; font-weight: 700; color: #fff; }
+    .brand-sub { font-size: 11px; color: #5DCAA5; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+    .invoice-title { text-align: right; }
+    .invoice-title h1 { font-size: 28px; font-weight: 700; color: #fff; letter-spacing: 0.04em; }
+    .invoice-title .inv-num { font-size: 12px; color: #9AAFC7; margin-top: 4px; }
 
-      doc.on("data", (chunk) => chunks.push(chunk));
-      doc.on("end", () => resolve(Buffer.concat(chunks)));
-      doc.on("error", reject);
+    .status-bar {
+      padding: 14px 2.5rem;
+      background: ${isPaid ? "#DCFCE7" : "#FEF3C7"};
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid ${isPaid ? "#86EFAC" : "#FDE68A"};
+    }
+    .status-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: ${isPaid ? "#22C55E" : "#F59E0B"};
+    }
+    .status-text {
+      font-size: 13px; font-weight: 700;
+      color: ${isPaid ? "#166534" : "#92400E"};
+    }
+    .status-sub { font-size: 11px; color: ${isPaid ? "#166534" : "#92400E"}; opacity: 0.8; margin-left: auto; }
 
-      // ── Header ──────────────────────────────────────────────────
-      doc
-        .fillColor("#0A2540")
-        .rect(0, 0, doc.page.width, 80)
-        .fill();
+    .body { padding: 2rem 2.5rem; }
 
-      doc
-        .fillColor("#ffffff")
-        .fontSize(22)
-        .font("Helvetica-Bold")
-        .text("FixNext Sheba", 50, 25);
+    .section-title {
+      font-size: 10px; font-weight: 700; color: #888780;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin-bottom: 12px;
+    }
+    .info-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      margin-bottom: 1.75rem;
+    }
+    .info-card {
+      background: #F9FAFB; border-radius: 10px;
+      padding: 12px 14px; border: 1px solid #E5E7EB;
+    }
+    .info-card .label { font-size: 10px; color: #888780; margin-bottom: 4px; }
+    .info-card .value { font-size: 13px; font-weight: 600; color: #2C2C2A; word-break: break-word; }
 
-      doc
-        .fillColor("#5DCAA5")
-        .fontSize(10)
-        .font("Helvetica")
-        .text("Home Services Platform · Bangladesh", 50, 52);
+    .divider { border: none; border-top: 1px solid #E5E7EB; margin: 1.5rem 0; }
 
-      // Invoice title (right side of header)
-      doc
-        .fillColor("#ffffff")
-        .fontSize(13)
-        .font("Helvetica-Bold")
-        .text("PAYMENT INVOICE", 0, 30, { align: "right", width: doc.page.width - 50 });
+    .line-items { margin-bottom: 1.5rem; }
+    .line-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid #F0F2F5;
+    }
+    .line-item:last-child { border-bottom: none; }
+    .line-item .item-name { font-size: 13px; color: #2C2C2A; }
+    .line-item .item-val { font-size: 13px; font-weight: 600; color: #2C2C2A; }
 
-      doc.moveDown(3);
+    .total-box {
+      background: #F0FBF6; border: 1px solid #9FE1CB;
+      border-radius: 12px; padding: 16px 20px;
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 1.75rem;
+    }
+    .total-label { font-size: 14px; font-weight: 700; color: #0F6E56; }
+    .total-amount { font-size: 26px; font-weight: 700; color: #1D9E75; }
 
-      // ── Invoice Meta ─────────────────────────────────────────────
-      const paidAt = tx.paidAt
-        ? new Date(tx.paidAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
-        : new Date(tx.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    .tran-box {
+      background: #F9FAFB; border-radius: 10px; padding: 14px 16px;
+      border: 1px solid #E5E7EB; margin-bottom: 1.75rem;
+    }
+    .tran-id {
+      font-family: monospace; font-size: 11px; color: #888780;
+      word-break: break-all; line-height: 1.6;
+    }
 
-      const metaY = 110;
-      doc.fillColor("#2C2C2A").fontSize(10).font("Helvetica");
+    .footer {
+      background: #F9FAFB; border-top: 1px solid #E5E7EB;
+      padding: 1.25rem 2.5rem;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .footer-note { font-size: 11px; color: #B4B2A9; }
+    .print-btn {
+      background: #0A2540; color: #fff; border: none;
+      border-radius: 8px; padding: 9px 20px; font-size: 12px;
+      font-weight: 700; cursor: pointer; font-family: inherit;
+    }
+    .print-btn:hover { background: #1D9E75; }
 
-      // Left column
-      doc.text("Invoice Date:", 50, metaY).font("Helvetica-Bold").text(paidAt, 50, metaY + 14);
-      doc.font("Helvetica").text("Status:", 50, metaY + 34)
-        .fillColor("#166534").font("Helvetica-Bold").text("PAID ✓", 50, metaY + 48);
+    @media print {
+      body { background: #fff; padding: 0; }
+      .invoice { box-shadow: none; border-radius: 0; max-width: 100%; }
+      .print-btn { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="invoice">
 
-      // Right column
-      doc.fillColor("#888780").font("Helvetica")
-        .text("Transaction ID:", 350, metaY)
-        .fillColor("#2C2C2A").font("Helvetica-Bold")
-        .fontSize(8)
-        .text(tran_id, 350, metaY + 14, { width: 190 });
+    <!-- Header -->
+    <div class="header">
+      <div class="brand">
+        <div class="brand-icon">🏠</div>
+        <div>
+          <div class="brand-name">FixNext Sheba</div>
+          <div class="brand-sub">Home Services</div>
+        </div>
+      </div>
+      <div class="invoice-title">
+        <h1>INVOICE</h1>
+        <div class="inv-num">#${tran_id.slice(-12).toUpperCase()}</div>
+      </div>
+    </div>
 
-      // Divider
-      doc.moveTo(50, metaY + 80).lineTo(doc.page.width - 50, metaY + 80)
-        .strokeColor("#E5E7EB").lineWidth(1).stroke();
+    <!-- Status bar -->
+    <div class="status-bar">
+      <div class="status-dot"></div>
+      <div class="status-text">${isPaid ? "✓ Payment Successful" : "⏳ Payment Pending"}</div>
+      <div class="status-sub">${isPaid ? `Paid on ${paidDate}` : `Initiated on ${createdDate}`}</div>
+    </div>
 
-      // ── Billed To ────────────────────────────────────────────────
-      const billedY = metaY + 95;
-      doc.fillColor("#888780").fontSize(9).font("Helvetica")
-        .text("BILLED TO", 50, billedY);
-      doc.fillColor("#2C2C2A").fontSize(12).font("Helvetica-Bold")
-        .text(booking?.name || "Customer", 50, billedY + 14);
-      doc.fontSize(10).font("Helvetica").fillColor("#555")
-        .text(booking?.phone || "", 50, billedY + 30)
-        .text(booking?.address || "", 50, billedY + 44, { width: 200 });
+    <div class="body">
 
-      // ── Service Table ─────────────────────────────────────────────
-      const tableY = billedY + 100;
+      <!-- Dates & IDs -->
+      <div class="section-title">Transaction Details</div>
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="label">Invoice Date</div>
+          <div class="value">${createdDate}</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Payment Date</div>
+          <div class="value">${isPaid ? paidDate : "—"}</div>
+        </div>
+        ${booking ? `
+        <div class="info-card">
+          <div class="label">Customer Name</div>
+          <div class="value">${booking.name || "—"}</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Address</div>
+          <div class="value">${booking.address || "—"}</div>
+        </div>
+        ` : ""}
+      </div>
 
-      // Table header
-      doc.fillColor("#F0F2F5").rect(50, tableY, doc.page.width - 100, 28).fill();
-      doc.fillColor("#0A2540").fontSize(10).font("Helvetica-Bold")
-        .text("Service", 60, tableY + 9)
-        .text("Scheduled", 260, tableY + 9)
-        .text("Amount", doc.page.width - 130, tableY + 9);
+      <hr class="divider" />
 
-      // Table row
-      const rowY = tableY + 28;
-      doc.fillColor("#F9FAFB").rect(50, rowY, doc.page.width - 100, 36).fill();
-      doc.strokeColor("#E5E7EB").lineWidth(0.5)
-        .rect(50, rowY, doc.page.width - 100, 36).stroke();
+      <!-- Line Items -->
+      <div class="section-title">Service Details</div>
+      <div class="line-items">
+        ${booking ? `
+        <div class="line-item">
+          <span class="item-name">Service</span>
+          <span class="item-val">${booking.service || "—"}</span>
+        </div>
+        <div class="line-item">
+          <span class="item-name">Package</span>
+          <span class="item-val">${booking.option !== undefined && booking.option !== null ? `Option ${booking.option + 1}` : "—"}</span>
+        </div>
+        ` : `
+        <div class="line-item">
+          <span class="item-name">Service Booking</span>
+          <span class="item-val">—</span>
+        </div>
+        `}
+        <div class="line-item">
+          <span class="item-name">Payment Status</span>
+          <span class="item-val" style="color: ${isPaid ? "#1D9E75" : "#F59E0B"}">${isPaid ? "✓ Paid" : "Pending"}</span>
+        </div>
+      </div>
 
-      const scheduledText = booking?.scheduledAt
-        ? new Date(booking.scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-        : "Immediate";
+      <!-- Total -->
+      <div class="total-box">
+        <div class="total-label">Total Amount</div>
+        <div class="total-amount">৳${amount}</div>
+      </div>
 
-      doc.fillColor("#2C2C2A").fontSize(11).font("Helvetica-Bold")
-        .text(booking?.service || "Home Service", 60, rowY + 8);
-      doc.fillColor("#888780").fontSize(9).font("Helvetica")
-        .text(booking?.option !== undefined ? `Option ${Number(booking.option) + 1}` : "", 60, rowY + 22);
-      doc.fillColor("#2C2C2A").fontSize(10).font("Helvetica")
-        .text(scheduledText, 260, rowY + 13)
-        .font("Helvetica-Bold").fontSize(13)
-        .text(`BDT ${(tx.amount || 0).toLocaleString()}`, doc.page.width - 130, rowY + 10);
+      <!-- Transaction ID -->
+      <div class="section-title">Transaction Reference</div>
+      <div class="tran-box">
+        <div class="tran-id">${tran_id}</div>
+      </div>
 
-      // ── Total ─────────────────────────────────────────────────────
-      const totalY = rowY + 50;
-      doc.fillColor("#1D9E75").rect(doc.page.width - 200, totalY, 150, 40).fill();
-      doc.fillColor("#ffffff").fontSize(10).font("Helvetica")
-        .text("TOTAL PAID", doc.page.width - 195, totalY + 8);
-      doc.fontSize(15).font("Helvetica-Bold")
-        .text(`BDT ${(tx.amount || 0).toLocaleString()}`, doc.page.width - 195, totalY + 22);
+    </div>
 
-      // ── Footer ────────────────────────────────────────────────────
-      doc.moveDown(6);
-      doc.fillColor("#E5E7EB").rect(50, doc.page.height - 80, doc.page.width - 100, 1).fill();
-      doc.fillColor("#B4B2A9").fontSize(9).font("Helvetica")
-        .text("Thank you for using FixNext Sheba.", 50, doc.page.height - 65, { align: "center" })
-        .text("This is a computer-generated invoice. No signature required.", 50, doc.page.height - 52, { align: "center" });
+    <!-- Footer -->
+    <div class="footer">
+      <div class="footer-note">Thank you for using FixNext Sheba • fixnextsheba.com</div>
+      <button class="print-btn" onclick="window.print()">🖨️ Print / Save PDF</button>
+    </div>
 
-      doc.end();
-    });
+  </div>
+</body>
+</html>`;
 
-    // PDF Response — Content-Disposition: attachment মানে browser download করবে
-    return new Response(pdfBuffer, {
+    return new Response(html, {
       status: 200,
       headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="invoice-${tran_id}.pdf"`,
-        "Content-Length": pdfBuffer.length.toString(),
+        "Content-Type": "text/html; charset=utf-8",
+        // ব্রাউজারে দেখাবে, print করলে PDF হবে
+        // download করতে চাইলে নিচের line uncomment করো:
+        // "Content-Disposition": `attachment; filename="invoice-${tran_id}.html"`,
       },
     });
-
   } catch (error) {
-    console.error("Invoice generation error:", error);
-    return new Response("Failed to generate invoice", { status: 500 });
+    console.error("Invoice error:", error);
+    return new Response("Internal server error", { status: 500 });
   }
 }

@@ -30,6 +30,7 @@ const CloseIcon = () => (
 export default function ServicemanPage() {
   const router = useRouter();
   const fileInputRef = useRef(null);
+  // ✅ pusherRef দিয়ে Pusher instance track করা হবে — duplicate connection avoid করতে
   const pusherRef = useRef(null);
 
   const [bookings, setBookings] = useState([]);
@@ -51,12 +52,11 @@ export default function ServicemanPage() {
   const [transactions, setTransactions] = useState([]);
   const [txLoading, setTxLoading] = useState(false);
 
-  // ✅ নতুন state
   const [isOnline, setIsOnline] = useState(true);
   const [toastMsg, setToastMsg] = useState(null);
   const [rejectingId, setRejectingId] = useState(null);
 
-  // ✅ Support / Customer Care chat state
+  // Support / Customer Care chat state
   const [showSupport, setShowSupport] = useState(false);
   const [supportMessages, setSupportMessages] = useState([]);
   const [supportInput, setSupportInput] = useState("");
@@ -73,7 +73,7 @@ export default function ServicemanPage() {
     setLang(next);
   };
 
-  // ✅ Support chat functions
+  // Support chat functions
   const loadSupportMessages = async () => {
     if (!user) return;
     try {
@@ -107,7 +107,7 @@ export default function ServicemanPage() {
     setTimeout(() => supportEndRef.current?.scrollIntoView({ behavior: "smooth" }), 200);
   };
 
-  // ✅ Toast notification helper
+  // Toast notification helper
   const showToast = (msg, type = "success") => {
     setToastMsg({ msg, type });
     setTimeout(() => setToastMsg(null), 3000);
@@ -180,13 +180,23 @@ export default function ServicemanPage() {
     finally { setMessagesLoading(false); }
   };
 
-  // ✅ Pusher real-time setup
+  // ✅ Pusher real-time setup — user.id এ depend করবে, পুরো user object এ না
+  // এতে불필요한reconnect বন্ধ হবে এবং WebSocket premature close error যাবে
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
+
+    // আগের connection থাকলে আগে properly disconnect করো
+    if (pusherRef.current) {
+      pusherRef.current.disconnect();
+      pusherRef.current = null;
+    }
 
     const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || "ap2",
     });
+
+    // ref এ save করো যাতে cleanup এ access করা যায়
+    pusherRef.current = pusher;
 
     const channel = pusher.subscribe(`serviceman-${user.id}`);
 
@@ -195,28 +205,37 @@ export default function ServicemanPage() {
       showToast(`${t.newBadge}: ${data.name} — ${data.service}`, "info");
     });
 
-    pusherRef.current = pusher;
-
+    // ✅ Cleanup: unbind সব event, unsubscribe channel, তারপর disconnect
     return () => {
+      channel.unbind_all();
       pusher.unsubscribe(`serviceman-${user.id}`);
       pusher.disconnect();
+      pusherRef.current = null;
     };
-  }, [user]);
+  }, [user?.id]); // ✅ শুধু user.id change হলে reconnect হবে
 
+  // ✅ updateStatus এ servicemanId add করা হয়েছে — booking card থেকে accept করলে accepted tab এ দেখাবে
   const updateStatus = async (id, status) => {
     try {
       await fetch("/api/booking", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status }),
+        body: JSON.stringify({ id, status, servicemanId: user.id }),
       });
       fetchBookings(user.id);
       showToast(`${t.booking} ${status}`);
     } catch (err) { console.error(err); }
   };
 
-  // ✅ Accept notification
+  // Accept notification
   const handleAcceptNotification = async (n) => {
+    // Complete করার আগে দ্বিতীয়টা accept করা যাবে না
+    const hasActive = bookings.some(b => b.status === "accepted");
+    if (hasActive) {
+      showToast("⚠️ Complete your current booking before accepting another!", "error");
+      return;
+    }
+
     try {
       await fetch("/api/notifications", {
         method: "PATCH",
@@ -234,7 +253,7 @@ export default function ServicemanPage() {
     } catch (err) { console.error(err); }
   };
 
-  // ✅ Reject notification
+  // Reject notification
   const handleRejectNotification = async (n) => {
     setRejectingId(n._id);
     try {
@@ -249,7 +268,7 @@ export default function ServicemanPage() {
     finally { setRejectingId(null); }
   };
 
-  // ✅ Online/Offline toggle
+  // Online/Offline toggle
   const handleToggleOnline = async () => {
     const newStatus = !isOnline;
     setIsOnline(newStatus);
@@ -267,6 +286,11 @@ export default function ServicemanPage() {
   };
 
   const handleLogout = async () => {
+    // ✅ Logout এর আগে Pusher disconnect করো
+    if (pusherRef.current) {
+      pusherRef.current.disconnect();
+      pusherRef.current = null;
+    }
     await fetch("/api/auth/logout", { method: "POST" });
     localStorage.removeItem("user");
     router.push("/login");
@@ -369,7 +393,7 @@ export default function ServicemanPage() {
   return (
     <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", paddingBottom: "2rem" }}>
 
-      {/* ✅ Toast */}
+      {/* Toast */}
       {toastMsg && (
         <div style={{
           position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
@@ -382,7 +406,7 @@ export default function ServicemanPage() {
         </div>
       )}
 
-      {/* ── Sidebar ── */}
+      {/* Sidebar */}
       {showSidebar && (
         <div onClick={() => setShowSidebar(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(10,37,64,0.5)" }}>
           <div onClick={e => e.stopPropagation()} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 300, background: "#fff", display: "flex", flexDirection: "column", boxShadow: "-4px 0 20px rgba(0,0,0,0.1)" }}>
@@ -430,7 +454,7 @@ export default function ServicemanPage() {
                       <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: "none" }} />
                     </div>
 
-                    {/* ✅ Online status indicator */}
+                    {/* Online status indicator */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 10 }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: isOnline ? "#22C55E" : "#9CA3AF" }} />
                       <span style={{ fontSize: 12, color: isOnline ? "#166534" : "#888780", fontWeight: 600 }}>
@@ -602,7 +626,7 @@ export default function ServicemanPage() {
         </div>
       )}
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div style={{ background: "#0A2540", padding: "1.25rem 1.5rem" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
@@ -612,7 +636,7 @@ export default function ServicemanPage() {
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <LanguageToggle lang={lang} onToggle={handleToggleLang} />
 
-            {/* ✅ Online/Offline Toggle */}
+            {/* Online/Offline Toggle */}
             <button
               onClick={handleToggleOnline}
               style={{
@@ -651,7 +675,7 @@ export default function ServicemanPage() {
 
       <div style={{ padding: "1.25rem" }}>
 
-        {/* ✅ Offline warning banner */}
+        {/* Offline warning banner */}
         {!isOnline && (
           <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 10, padding: "10px 14px", marginBottom: "1rem", display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 16 }}>⚠️</span>
@@ -662,7 +686,7 @@ export default function ServicemanPage() {
           </div>
         )}
 
-        {/* ── Notifications ── */}
+        {/* Notifications */}
         {notifications.length > 0 && (
           <div style={{ marginBottom: "1.25rem" }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
@@ -685,6 +709,18 @@ export default function ServicemanPage() {
                     </div>
                   ))}
                 </div>
+                {n.serviceType && (() => {
+                  const tierColors = { basic: "#0284C7", standard: "#7C3AED", premium: "#D97706" };
+                  const tierBgs = { basic: "#E0F2FE", standard: "#EDE9FE", premium: "#FEF3C7" };
+                  const tc = tierColors[n.serviceType] || tierColors.basic;
+                  const tb = tierBgs[n.serviceType] || tierBgs.basic;
+                  return (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                      <span style={{ fontSize: 10, color: "#888780" }}>Tier:</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 10px", borderRadius: 999, background: tb, color: tc, textTransform: "uppercase" }}>{n.serviceType}</span>
+                    </div>
+                  );
+                })()}
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
                     onClick={() => handleAcceptNotification(n)}
@@ -705,7 +741,7 @@ export default function ServicemanPage() {
           </div>
         )}
 
-        {/* ── Stats ── */}
+        {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: "1.25rem" }}>
           {[
             { label: t.total, value: counts.total, color: "#0A2540" },
@@ -720,7 +756,7 @@ export default function ServicemanPage() {
           ))}
         </div>
 
-        {/* ── Filter ── */}
+        {/* Filter */}
         <div style={{ display: "flex", gap: 6, marginBottom: "1rem", flexWrap: "wrap" }}>
           {["all", "pending", "accepted", "completed"].map(f => (
             <button key={f} onClick={() => setFilter(f)} style={{ padding: "6px 14px", borderRadius: 999, fontSize: 11, fontWeight: 600, border: "1px solid #E5E7EB", cursor: "pointer", fontFamily: "inherit", background: filter === f ? "#1D9E75" : "#fff", color: filter === f ? "#fff" : "#888780", textTransform: "capitalize" }}>
@@ -729,7 +765,7 @@ export default function ServicemanPage() {
           ))}
         </div>
 
-        {/* ── Booking Cards ── */}
+        {/* Booking Cards */}
         {loading ? (
           <div style={{ textAlign: "center", color: "#888780", padding: "2rem", fontSize: 13 }}>Loading...</div>
         ) : filtered.length === 0 ? (
@@ -761,6 +797,19 @@ export default function ServicemanPage() {
                   </div>
                 ))}
               </div>
+              {/* Service Tier badge */}
+              {b.serviceType && (() => {
+                const tierColors = { basic: "#0284C7", standard: "#7C3AED", premium: "#D97706" };
+                const tierBgs = { basic: "#E0F2FE", standard: "#EDE9FE", premium: "#FEF3C7" };
+                const tc = tierColors[b.serviceType] || tierColors.basic;
+                const tb = tierBgs[b.serviceType] || tierBgs.basic;
+                return (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                    <span style={{ fontSize: 10, color: "#888780" }}>Service Tier:</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 10px", borderRadius: 999, background: tb, color: tc, textTransform: "uppercase" }}>{b.serviceType}</span>
+                  </div>
+                );
+              })()}
               <div style={{ display: "flex", gap: 8 }}>
                 {b.status === "pending" && (
                   <button onClick={() => updateStatus(b._id, "accepted")} style={{ flex: 1, background: "#1D9E75", color: "#fff", border: "none", borderRadius: 8, padding: "10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
@@ -786,7 +835,7 @@ export default function ServicemanPage() {
         )}
       </div>
 
-      {/* ✅ Customer Care floating button — serviceman side */}
+      {/* Customer Care floating button */}
       {user && (
         <>
           <button
@@ -829,8 +878,8 @@ export default function ServicemanPage() {
                   </svg>
                 </button>
               </div>
-              <div style={{ 
-                flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, minHeight: 200, maxHeight: 280, background: "#ECE5DD"}}>
+              <div style={{
+                flex: 1, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, minHeight: 200, maxHeight: 280, background: "#ECE5DD" }}>
                 {supportMessages.length === 0 ? (
                   <div style={{ textAlign: "center", color: "#040400", fontSize: 12, marginTop: 40 }}>
                     <div style={{ fontSize: 28, marginBottom: 8 }}>💬</div>
@@ -864,7 +913,7 @@ export default function ServicemanPage() {
                   onChange={e => setSupportInput(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && sendSupportMessage()}
                   placeholder="Type a message..."
-                  style={{ flex: 1, padding: "8px 12px", border: "1px solid #E5E7EB",color: "#040400", borderRadius: 20, fontSize: 12, outline: "none", fontFamily: "inherit" }}
+                  style={{ flex: 1, padding: "8px 12px", border: "1px solid #E5E7EB", color: "#040400", borderRadius: 20, fontSize: 12, outline: "none", fontFamily: "inherit" }}
                 />
                 <button
                   onClick={sendSupportMessage}

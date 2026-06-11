@@ -3,7 +3,6 @@ import { verifyToken } from "@/lib/jwt";
 import { cookies } from "next/headers";
 import { ObjectId } from "mongodb";
 
-// ✅ Helper: cookie থেকে token নিয়ে admin কিনা verify করে DB return করে
 async function getAdminDb() {
   const cookieStore = await cookies();
   const token = cookieStore.get("token")?.value;
@@ -14,7 +13,7 @@ async function getAdminDb() {
   return client.db("fixnext-sheba");
 }
 
-// GET — public endpoint, signup page এ specialist list দেখানোর জন্য
+// GET — public endpoint
 export async function GET() {
   try {
     const client = await clientPromise;
@@ -30,8 +29,8 @@ export async function GET() {
   }
 }
 
-// POST — admin only: নতুন specialist type add করো
-// body: { name: "Electrician", icon: "⚡", subtitle: "Wiring & repairs", options: [{label:"Basic",price:500},{label:"Full",price:1200}] }
+// POST — admin only
+// body: { name, icon, subtitle, options: [{label, price, type}] }
 export async function POST(req) {
   try {
     const db = await getAdminDb();
@@ -50,10 +49,11 @@ export async function POST(req) {
       name: name.trim(),
       icon: icon || "🔧",
       subtitle: subtitle?.trim() || "",
-      // ✅ price গুলো সবসময় Number হিসেবে save করো
       options: options.map((o) => ({
         label: o.label,
         price: Number(o.price) || 0,
+        // ✅ type field — "basic" | "standard" | "premium", default "basic"
+        type: ["basic", "standard", "premium"].includes(o.type) ? o.type : "basic",
       })),
       createdAt: new Date(),
     });
@@ -64,8 +64,7 @@ export async function POST(req) {
   }
 }
 
-// PATCH — admin only: specialist এর name/icon/subtitle/options update করো
-// body: { id: "...", name: "...", options: [...] }
+// PATCH — admin only
 export async function PATCH(req) {
   try {
     const db = await getAdminDb();
@@ -74,11 +73,12 @@ export async function PATCH(req) {
     const { id, ...updates } = await req.json();
     if (!id) return Response.json({ success: false, message: "id required" }, { status: 400 });
 
-    // options থাকলে price গুলো Number করে দাও
     if (updates.options) {
       updates.options = updates.options.map((o) => ({
         label: o.label,
         price: Number(o.price) || 0,
+        // ✅ type preserve করো
+        type: ["basic", "standard", "premium"].includes(o.type) ? o.type : "basic",
       }));
     }
 
@@ -93,8 +93,7 @@ export async function PATCH(req) {
   }
 }
 
-// DELETE — admin only: specialist মুছে ফেলো
-// body: { id: "..." }
+// DELETE — admin only
 export async function DELETE(req) {
   try {
     const db = await getAdminDb();

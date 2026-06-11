@@ -525,18 +525,26 @@ export default function AdminPage() {
                 {loading ? <div style={{ padding: "3rem", textAlign: "center", color: muted, fontSize: 13 }}>Loading…</div> : (
                   <div style={{ overflowX: "auto" }} className="scrollbar-thin">
                     <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
-                      <thead><tr>{["Customer", "Phone", "Service", "Address", "Status", "Date"].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                      <thead><tr>{["Customer", "Phone", "Service", "Tier", "Address", "Status", "Date"].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                       <tbody>
-                        {filteredBookings.length === 0 ? <tr><td colSpan={6} style={{ padding: "2.5rem", textAlign: "center", color: muted, fontSize: 13 }}>No bookings found</td></tr> : filteredBookings.map((b, i) => (
+                        {filteredBookings.length === 0 ? <tr><td colSpan={7} style={{ padding: "2.5rem", textAlign: "center", color: muted, fontSize: 13 }}>No bookings found</td></tr> : filteredBookings.map((b, i) => {
+                          const tierColors = { basic: "#0EA5E9", standard: "#8B5CF6", premium: "#F59E0B" };
+                          const tierBgs = { basic: "rgba(14,165,233,0.12)", standard: "rgba(139,92,246,0.12)", premium: "rgba(245,158,11,0.12)" };
+                          const tc = tierColors[b.serviceType] || tierColors.basic;
+                          const tb = tierBgs[b.serviceType] || tierBgs.basic;
+                          return (
                           <tr key={i} onMouseEnter={(e) => (e.currentTarget.style.background = dark ? "rgba(255,255,255,0.02)" : "#F8FAFF")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")} style={{ transition: "background 0.15s" }}>
                             <td style={{ ...tdStyle, fontWeight: 600 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ width: 28, height: 28, borderRadius: "50%", background: `hsl(${(b.name?.charCodeAt(0) || 0) * 10},60%,45%)`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>{b.name?.charAt(0).toUpperCase()}</span></div>{b.name}</div></td>
                             <td style={{ ...tdStyle, color: muted, fontFamily: "monospace", fontSize: 11 }}>{b.phone}</td>
                             <td style={tdStyle}>{b.service}</td>
+                            {/* ✅ Tier badge */}
+                            <td style={tdStyle}><span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: tb, color: tc, textTransform: "uppercase" }}>{b.serviceType || "basic"}</span></td>
                             <td style={{ ...tdStyle, color: muted, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={b.address}>{b.address}</td>
                             <td style={tdStyle}><div style={{ display: "flex", flexDirection: "column", gap: 4 }}><StatusBadge status={b.status} /><div style={{ display: "flex", gap: 4 }}>{b.status === "pending" && <button onClick={() => updateStatus(b._id, "accepted")} style={{ fontSize: 10, padding: "2px 8px", background: "rgba(59,130,246,0.12)", color: "#60A5FA", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 5, cursor: "pointer" }}>Accept</button>}{b.status === "accepted" && <button onClick={() => updateStatus(b._id, "completed")} style={{ fontSize: 10, padding: "2px 8px", background: "rgba(34,197,94,0.12)", color: "#4ADE80", border: "1px solid rgba(34,197,94,0.2)", borderRadius: 5, cursor: "pointer" }}>Complete</button>}</div></div></td>
                             <td style={{ ...tdStyle, color: muted, fontSize: 11 }}>{formatDateTime(b.createdAt)}</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -783,13 +791,19 @@ export default function AdminPage() {
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 11, color: muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Packages</div>
                     {serviceForm.options.map((opt, i) => (
-                      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                        <input placeholder="Package name (e.g. Basic)" value={opt.label} onChange={(e) => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], label: e.target.value }; setServiceForm((p) => ({ ...p, options: opts })); }} style={{ flex: 2, padding: "8px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
-                        <input placeholder="Price (e.g. 500)" type="number" value={opt.price} onChange={(e) => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], price: e.target.value }; setServiceForm((p) => ({ ...p, options: opts })); }} style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+                      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                        <input placeholder="Package name (e.g. Basic)" value={opt.label} onChange={(e) => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], label: e.target.value }; setServiceForm((p) => ({ ...p, options: opts })); }} style={{ flex: 2, minWidth: 120, padding: "8px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+                        <input placeholder="Price (e.g. 500)" type="number" value={opt.price} onChange={(e) => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], price: e.target.value }; setServiceForm((p) => ({ ...p, options: opts })); }} style={{ flex: 1, minWidth: 80, padding: "8px 12px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+                        {/* ✅ Service Tier selector */}
+                        <select value={opt.type || "basic"} onChange={(e) => { const opts = [...serviceForm.options]; opts[i] = { ...opts[i], type: e.target.value }; setServiceForm((p) => ({ ...p, options: opts })); }} style={{ flex: 1, minWidth: 100, padding: "8px 10px", borderRadius: 8, border: `1px solid ${border}`, background: dark ? "#0D1117" : "#F9FAFB", color: text, fontSize: 12, outline: "none", fontFamily: "inherit", cursor: "pointer" }}>
+                          <option value="basic">🔵 Basic</option>
+                          <option value="standard">🟣 Standard</option>
+                          <option value="premium">🟡 Premium</option>
+                        </select>
                         {serviceForm.options.length > 1 && <button onClick={() => setServiceForm((p) => ({ ...p, options: p.options.filter((_, idx) => idx !== i) }))} style={{ padding: "8px 12px", background: "rgba(239,68,68,0.1)", color: "#F87171", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>✕</button>}
                       </div>
                     ))}
-                    <button onClick={() => setServiceForm((p) => ({ ...p, options: [...p.options, { label: "", price: "" }] }))} style={{ fontSize: 12, color: accent, background: "none", border: `1px dashed ${border}`, borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontFamily: "inherit", width: "100%" }}>+ Add option</button>
+                    <button onClick={() => setServiceForm((p) => ({ ...p, options: [...p.options, { label: "", price: "", type: "basic" }] }))} style={{ fontSize: 12, color: accent, background: "none", border: `1px dashed ${border}`, borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontFamily: "inherit", width: "100%" }}>+ Add option</button>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={handleSaveService} disabled={serviceSaving} style={{ padding: "10px 24px", background: "#1D9E75", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>{serviceSaving ? "Saving…" : editingService ? "Update" : "Create"}</button>
@@ -806,11 +820,27 @@ export default function AdminPage() {
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 26 }}>{s.icon}</span><div><div style={{ fontSize: 13, fontWeight: 700, color: text }}>{s.name}</div><div style={{ fontSize: 11, color: muted }}>{s.subtitle}</div></div></div>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <button onClick={() => { setEditingService(s); setServiceForm({ name: s.name, icon: s.icon, subtitle: s.subtitle, options: s.options.map((o) => ({ label: o.label, price: o.price })) }); setShowServiceForm(true); }} style={{ fontSize: 11, padding: "4px 10px", background: "rgba(79,142,247,0.1)", color: accent, border: `1px solid rgba(79,142,247,0.2)`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>Edit</button>
+                          {/* ✅ Edit এ type ও preserve করো */}
+                          <button onClick={() => { setEditingService(s); setServiceForm({ name: s.name, icon: s.icon, subtitle: s.subtitle, options: s.options.map((o) => ({ label: o.label, price: o.price, type: o.type || "basic" })) }); setShowServiceForm(true); }} style={{ fontSize: 11, padding: "4px 10px", background: "rgba(79,142,247,0.1)", color: accent, border: `1px solid rgba(79,142,247,0.2)`, borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>Edit</button>
                           <button onClick={() => setDeleteServiceId(s._id)} style={{ fontSize: 11, padding: "4px 10px", background: "rgba(239,68,68,0.1)", color: "#F87171", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>Del</button>
                         </div>
                       </div>
-                      {s.options.map((opt, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "5px 8px", background: dark ? "rgba(255,255,255,0.03)" : "#F8FAFF", borderRadius: 6, marginBottom: 3 }}><span style={{ color: text }}>{opt.label}</span><span style={{ fontWeight: 700, color: "#4ADE80" }}>৳{opt.price}</span></div>))}
+                      {/* ✅ Options with tier badge */}
+                      {s.options.map((opt, i) => {
+                        const tierColors = { basic: "#0EA5E9", standard: "#8B5CF6", premium: "#F59E0B" };
+                        const tierBgs = { basic: "#E0F2FE", standard: "#EDE9FE", premium: "#FEF3C7" };
+                        const tc = tierColors[opt.type] || tierColors.basic;
+                        const tb = tierBgs[opt.type] || tierBgs.basic;
+                        return (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, padding: "6px 8px", background: dark ? "rgba(255,255,255,0.03)" : "#F8FAFF", borderRadius: 6, marginBottom: 3 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ color: text }}>{opt.label}</span>
+                              {opt.type && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: tb, color: tc, textTransform: "uppercase" }}>{opt.type}</span>}
+                            </div>
+                            <span style={{ fontWeight: 700, color: "#4ADE80" }}>৳{opt.price}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   ))}
                 </div>

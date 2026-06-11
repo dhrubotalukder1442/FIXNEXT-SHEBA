@@ -1,5 +1,15 @@
 import clientPromise from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { sendBookingConfirmation } from "@/lib/mailer";
+import Pusher from "pusher";
+
+const pusher = new Pusher({
+  appId: process.env.PUSHER_APP_ID,
+  key: process.env.PUSHER_KEY,
+  secret: process.env.PUSHER_SECRET,
+  cluster: process.env.PUSHER_CLUSTER || "ap2",
+  useTLS: true,
+});
 
 export async function POST(req) {
   try {
@@ -27,7 +37,6 @@ export async function POST(req) {
 
         // Payment confirm হলে user কে email পাঠাই।
         // try-catch আলাদা রাখি — email fail করলে payment flow break হবে না।
-        // Email failure টা critical না, payment টা critical।
         if (booking && transaction?.userEmail) {
           try {
             await sendBookingConfirmation({
@@ -42,6 +51,20 @@ export async function POST(req) {
             });
           } catch (emailErr) {
             console.error("Confirmation email failed:", emailErr);
+          }
+        }
+
+        // Payment successful হলে user কে Pusher দিয়ে notify করি
+        // যাতে review popup automatically আসে — SSLCommerz redirect এর পরে
+        // page reload হয় তাই Pusher দিয়ে trigger করা safe।
+        if (booking?.userId) {
+          try {
+            await pusher.trigger(`user-${booking.userId}`, "payment-successful", {
+              bookingId: transaction.bookingId,
+              transactionId: tran_id,
+            });
+          } catch (pusherErr) {
+            console.error("Pusher payment-successful trigger failed:", pusherErr);
           }
         }
       }

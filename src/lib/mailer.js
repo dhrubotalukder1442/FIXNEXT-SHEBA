@@ -29,14 +29,20 @@ export async function sendOTP(email, otp) {
     `,
   });
 }
+
 // ── Booking Confirmation ─────────────────────────────────────────────────────
-// Payment success হওয়ার পরে user কে পাঠানো হয়।
-// কেন payment success এ? কারণ unpaid booking confirm করা ঠিক না —
-// user pay করার আগেই confirm email পেলে confused হবে।
 export async function sendBookingConfirmation({ to, name, service, option, address, scheduledAt, amount, transactionId }) {
   const scheduledText = scheduledAt
     ? new Date(scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
     : "As soon as possible";
+
+  const rows = [
+    ["Service", service],
+    ["Package", option !== undefined ? `Option ${Number(option) + 1}` : "—"],
+    ["Address", address],
+    ["Scheduled", scheduledText],
+    ["Amount Paid", `BDT ${amount?.toLocaleString()}`],
+  ];
 
   await transporter.sendMail({
     from: `"FixNext Sheba" <${process.env.GMAIL_USER}>`,
@@ -57,18 +63,14 @@ export async function sendBookingConfirmation({ to, name, service, option, addre
 
         <div style="background: #fff; border-radius: 10px; padding: 1.25rem; border: 1px solid #E5E7EB; margin-bottom: 1rem;">
           <div style="font-size: 11px; font-weight: 700; color: #888780; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;">Booking Details</div>
-          ${[
-            ["Service", service],
-            ["Package", option !== undefined ? `Option ${Number(option) + 1}` : "—"],
-            ["Address", address],
-            ["Scheduled", scheduledText],
-            ["Amount Paid", `BDT ${amount?.toLocaleString()}`],
-          ].map(([label, val]) => `
-            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #F0F2F5; font-size: 13px;">
-              <span style="color: #888780;">${label}</span>
-              <span style="font-weight: 600; color: #2C2C2A;">${val}</span>
-            </div>
-          `).join("")}
+          <table style="width: 100%; border-collapse: collapse;">
+            ${rows.map(([label, val], idx) => `
+              <tr style="${idx < rows.length - 1 ? "border-bottom: 1px solid #F0F2F5;" : ""}">
+                <td style="padding: 7px 0; font-size: 13px; color: #888780; width: 40%;">${label}</td>
+                <td style="padding: 7px 0; font-size: 13px; font-weight: 600; color: #2C2C2A; text-align: right;">${val}</td>
+              </tr>
+            `).join("")}
+          </table>
         </div>
 
         <div style="background: #F9FAFB; border-radius: 8px; padding: 10px 14px; margin-bottom: 1.25rem; font-size: 11px; color: #888780;">
@@ -88,13 +90,21 @@ export async function sendBookingConfirmation({ to, name, service, option, addre
 }
 
 // ── Booking Accepted ──────────────────────────────────────────────────────────
-// Serviceman booking accept করলে user কে notify করা হয়।
-// কেন এটা দরকার? User payment করেছে কিন্তু জানে না কেউ আসবে কিনা —
-// এই email টা user এর anxiety কমায়।
 export async function sendBookingAccepted({ to, name, service, address, scheduledAt, servicemanName, servicemanPhone }) {
   const scheduledText = scheduledAt
     ? new Date(scheduledAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
     : "As soon as possible";
+
+  const servicemanRows = [
+    ["Name", servicemanName],
+    ["Phone", servicemanPhone || "Will contact you soon"],
+  ];
+
+  const bookingRows = [
+    ["Service", service],
+    ["Address", address],
+    ["Scheduled", scheduledText],
+  ];
 
   await transporter.sendMail({
     from: `"FixNext Sheba" <${process.env.GMAIL_USER}>`,
@@ -115,29 +125,26 @@ export async function sendBookingAccepted({ to, name, service, address, schedule
 
         <div style="background: #fff; border-radius: 10px; padding: 1.25rem; border: 1px solid #E5E7EB; margin-bottom: 1rem;">
           <div style="font-size: 11px; font-weight: 700; color: #888780; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;">Your Serviceman</div>
-          ${[
-            ["Name", servicemanName],
-            ["Phone", servicemanPhone || "Will contact you soon"],
-          ].map(([label, val]) => `
-            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #F0F2F5; font-size: 13px;">
-              <span style="color: #888780;">${label}</span>
-              <span style="font-weight: 600; color: #2C2C2A;">${val}</span>
-            </div>
-          `).join("")}
+          <table style="width: 100%; border-collapse: collapse;">
+            ${servicemanRows.map(([label, val], idx) => `
+              <tr style="${idx < servicemanRows.length - 1 ? "border-bottom: 1px solid #F0F2F5;" : ""}">
+                <td style="padding: 8px 0; font-size: 13px; color: #888780; width: 40%;">${label}</td>
+                <td style="padding: 8px 0; font-size: 13px; font-weight: 600; color: #2C2C2A; text-align: right;">${val}</td>
+              </tr>
+            `).join("")}
+          </table>
         </div>
 
         <div style="background: #fff; border-radius: 10px; padding: 1.25rem; border: 1px solid #E5E7EB;">
           <div style="font-size: 11px; font-weight: 700; color: #888780; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;">Booking Summary</div>
-          ${[
-            ["Service", service],
-            ["Address", address],
-            ["Scheduled", scheduledText],
-          ].map(([label, val]) => `
-            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #F0F2F5; font-size: 13px;">
-              <span style="color: #888780;">${label}</span>
-              <span style="font-weight: 600; color: #2C2C2A;">${val}</span>
-            </div>
-          `).join("")}
+          <table style="width: 100%; border-collapse: collapse;">
+            ${bookingRows.map(([label, val], idx) => `
+              <tr style="${idx < bookingRows.length - 1 ? "border-bottom: 1px solid #F0F2F5;" : ""}">
+                <td style="padding: 8px 0; font-size: 13px; color: #888780; width: 40%;">${label}</td>
+                <td style="padding: 8px 0; font-size: 13px; font-weight: 600; color: #2C2C2A; text-align: right;">${val}</td>
+              </tr>
+            `).join("")}
+          </table>
         </div>
 
         <p style="color: #B4B2A9; font-size: 11px; text-align: center; margin-top: 1.5rem;">
