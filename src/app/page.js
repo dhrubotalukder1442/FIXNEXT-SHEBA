@@ -76,6 +76,7 @@ export default function Home() {
   const [scheduledAt, setScheduledAt] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [lang, setLangState] = useState("en");
+  const [expandedServiceGroup, setExpandedServiceGroup] = useState(null);
 
   // Support chat state
   const [showSupport, setShowSupport] = useState(false);
@@ -999,58 +1000,144 @@ export default function Home() {
         )}
       </div>
 
-      {/* Services Grid */}
-      <div style={{ padding: "1.25rem" }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.75rem" }}>Choose a service</div>
+     
+     {/* Services Grid */}
+<div style={{ padding: "1.25rem" }}>
+  <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.75rem" }}>Choose a service</div>
 
-        <div style={{ position: "relative", marginBottom: "0.75rem" }}>
-          <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#888780" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            placeholder={t.searchPlaceholder}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ ...inputStyle, paddingLeft: 30, marginBottom: 0 }}
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#888780", padding: 2, display: "flex", alignItems: "center" }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-            </button>
-          )}
+  {/* Search bar */}
+  <div style={{ position: "relative", marginBottom: "0.75rem" }}>
+    <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#888780" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+    <input
+      placeholder={t.searchPlaceholder}
+      value={searchQuery}
+      onChange={(e) => setSearchQuery(e.target.value)}
+      style={{ ...inputStyle, paddingLeft: 30, marginBottom: 0 }}
+    />
+    {searchQuery && (
+      <button onClick={() => setSearchQuery("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#888780", padding: 2, display: "flex", alignItems: "center" }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+      </button>
+    )}
+  </div>
+
+  {servicesLoading ? (
+    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
+      <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
+      Loading services...
+    </div>
+  ) : services.length === 0 ? (
+    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
+      <div style={{ fontSize: 28, marginBottom: 8 }}>🛠️</div>
+      No services available yet
+    </div>
+  ) : (() => {
+    // Group services by name
+    const grouped = {};
+    services.forEach((s) => {
+      if (!grouped[s.name]) grouped[s.name] = { name: s.name, nameImage: s.nameImage || "", items: [] };
+      grouped[s.name].items.push(s);
+    });
+    const groups = Object.values(grouped);
+
+    // Filter by search
+    const filteredGroups = groups.filter((g) =>
+      !searchQuery ||
+      g.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      g.items.some((s) => s.subtitle?.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+
+    if (filteredGroups.length === 0) {
+      return (
+        <div style={{ textAlign: "center", padding: "1.5rem 0", color: "#888780", fontSize: 13 }}>
+          No services found for &ldquo;{searchQuery}&rdquo;
         </div>
+      );
+    }
 
-        {servicesLoading ? (
-          <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
-            <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
-            Loading services...
-          </div>
-        ) : services.length === 0 ? (
-          <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
-            <div style={{ fontSize: 28, marginBottom: 8 }}>🛠️</div>
-            No services available yet
-          </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-            {filteredServices.map((s) => {
-              const sid = s._id?.toString();
-              return (
-                <div key={sid} onClick={() => handleSelectService(sid)} style={{ background: activeService === sid ? "#F0FBF6" : "#fff", border: activeService === sid ? "1.5px solid #1D9E75" : "1px solid #E5E7EB", borderRadius: 12, padding: "12px 8px", textAlign: "center", cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
-                  <div style={{ fontSize: 22, marginBottom: 5, lineHeight: 1 }}>{s.icon}</div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: "#2C2C2A", lineHeight: 1.3 }}>{s.name}</div>
-                  <div style={{ fontSize: 10, color: "#888780", marginTop: 2, lineHeight: 1.3 }}>{s.subtitle}</div>
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {filteredGroups.map((group) => {
+          // Check if this group is currently active (any item selected)
+          const isGroupActive = group.items.some((s) => s._id?.toString() === activeService);
+          const isExpanded = expandedServiceGroup === group.name || isGroupActive;
+
+          return (
+            <div key={group.name} style={{ background: "#fff", border: isGroupActive ? "1.5px solid #1D9E75" : "1px solid #E5E7EB", borderRadius: 14, overflow: "hidden" }}>
+              {/* Group header — click to expand/collapse */}
+              <div
+                onClick={() => setExpandedServiceGroup(isExpanded ? null : group.name)}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 13px", cursor: "pointer", WebkitTapHighlightColor: "transparent" }}
+              >
+                {/* Group image or fallback */}
+                <div style={{ width: 100, height: 100, borderRadius: 16, overflow: "hidden", flexShrink: 0, background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {group.nameImage ? (
+                    <img src={group.nameImage} alt={group.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  ) : (
+                    <span style={{ fontSize: 28 }}>🔧</span>
+                  )}
                 </div>
-              );
-            })}
-            {searchQuery && filteredServices.length === 0 && (
-              <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "1.5rem 0", color: "#888780", fontSize: 13 }}>
-                No services found for &ldquo;{searchQuery}&rdquo;
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#2C2C2A" }}>{group.name}</div>
+                  <div style={{ fontSize: 11, color: "#888780", marginTop: 1 }}>{group.items.length} option{group.items.length !== 1 ? "s" : ""} available</div>
+                </div>
+                {/* Expand arrow */}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#888780" strokeWidth="2" style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s", flexShrink: 0 }}>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
               </div>
-            )}
-          </div>
-        )}
-      </div>
 
+              {/* Subtitles — shown when expanded */}
+              {isExpanded && (
+                <div style={{ borderTop: "1px solid #F0F2F5", padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {group.items.map((s) => {
+                    const sid = s._id?.toString();
+                    const isSelected = activeService === sid;
+                    return (
+                      <div
+                        key={sid}
+                        onClick={() => handleSelectService(sid)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          background: isSelected ? "#F0FBF6" : "#F9FAFB",
+                          border: isSelected ? "1.5px solid #1D9E75" : "1px solid #E5E7EB",
+                          borderRadius: 10, padding: "10px 12px", cursor: "pointer",
+                          WebkitTapHighlightColor: "transparent",
+                        }}
+                      >
+                        {/* Subtitle image */}
+                                                  {/* Subtitle image — square, 1/4 of card width */}
+                          <div style={{ width: 72, height: 72, borderRadius: 16, overflow: "hidden", flexShrink: 0, background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            {s.image ? (
+                              <img src={s.image} alt={s.subtitle} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            ) : (
+                              <span style={{ fontSize: 28 }}>🔧</span>
+                            )}
+                          </div>
+                         <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#2C2C2A" }}>{s.subtitle}</div>
+                          <div style={{ fontSize: 11, color: "#888780", marginTop: 1 }}>
+                            from ৳{Math.min(...s.options.map((o) => o.price)).toLocaleString()}
+                          </div>
+                        </div>
+                        {/* Selected indicator */}
+                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: isSelected ? "#1D9E75" : "transparent", border: isSelected ? "1.5px solid #1D9E75" : "1.5px solid #B4B2A9", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          {isSelected && <CheckMark />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  })()}
+</div>
       {/* Service Detail Panel */}
       {service && (
         <div style={{ padding: "0 1.25rem 1.5rem" }}>
