@@ -1,5 +1,5 @@
 "use client";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 // Simple SVG icons used in footer
 const FacebookIcon = () => (
@@ -44,8 +44,6 @@ const ShieldIcon = () => (
 );
 
 export default function Footer() {
-  const router = useRouter();
-
   const quickLinks = [
     { label: "Home", path: "/" },
     { label: "Services", path: "/#services" },
@@ -80,7 +78,7 @@ export default function Footer() {
         marginTop: "2rem",
       }}
     >
-      {/* Top divider line — green accent */}
+      {/* Top divider line */}
       <div style={{ height: 3, background: "linear-gradient(90deg, #1D9E75 0%, #5DCAA5 50%, transparent 100%)" }} />
 
       {/* Main footer body */}
@@ -140,67 +138,66 @@ export default function Footer() {
           </div>
         </div>
 
-        {/* 2-column grid: Quick Links + Contact */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1.75rem" }}>
+        {/* Quick Links + Contact — flex, space-between */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.75rem" }}>
 
-          {/* Quick Links */}
+          {/* Quick Links — left */}
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#5DCAA5", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>
               Quick Links
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {quickLinks.map((link) => (
-                <button
+                <Link
                   key={link.label}
-                  onClick={() => router.push(link.path)}
+                  href={link.path}
                   style={{
-                    background: "none", border: "none", cursor: "pointer",
-                    textAlign: "left", padding: 0,
+                    display: "block",
                     fontSize: 12, color: "#9AAFC7",
+                    textDecoration: "none",
                     fontFamily: "'Sora', sans-serif",
-                    transition: "color 0.15s",
                   }}
                   onMouseEnter={(e) => e.currentTarget.style.color = "#5DCAA5"}
                   onMouseLeave={(e) => e.currentTarget.style.color = "#9AAFC7"}
                 >
                   {link.label}
-                </button>
+                </Link>
               ))}
             </div>
           </div>
 
-          {/* Contact */}
-          <div>
+          {/* Contact — right */}
+          <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#5DCAA5", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>
               Contact
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {contactInfo.map((item, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 7, color: "#9AAFC7" }}>
+                <div key={i} style={{ display: "flex", alignItems: "flex-start", justifyContent: "flex-end", gap: 7, color: "#9AAFC7" }}>
                   <span style={{ marginTop: 1, flexShrink: 0 }}>{item.icon}</span>
                   <span style={{ fontSize: 11, lineHeight: 1.5 }}>{item.text}</span>
                 </div>
               ))}
             </div>
           </div>
+
         </div>
 
         {/* Legal links row */}
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: "1.5rem" }}>
           {legalLinks.map((link) => (
-            <button
+            <Link
               key={link.label}
-              onClick={() => router.push(link.path)}
+              href={link.path}
               style={{
-                background: "none", border: "none", cursor: "pointer",
-                padding: 0, fontSize: 11, color: "#7BAEC8",
-                fontFamily: "'Sora', sans-serif",
+                fontSize: 11, color: "#7BAEC8",
                 textDecoration: "underline",
                 textDecorationColor: "rgba(123,174,200,0.35)",
+                fontFamily: "'Sora', sans-serif",
               }}
             >
               {link.label}
-            </button>
+            </Link>
           ))}
         </div>
 
@@ -236,6 +233,7 @@ export default function Footer() {
             Made with ❤️ in Dhaka, Bangladesh
           </div>
         </div>
+
       </div>
     </footer>
   );
