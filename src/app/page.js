@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Pusher from "pusher-js";
 import { translations, getLang, setLang } from "@/lib/translations";
 import LanguageToggle from "@/components/LanguageToggle";
+import Footer from "@/components/Footer";  
 
 const CalendarIcon = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1395,6 +1396,7 @@ export default function Home() {
           )}
         </>
       )}
+       <Footer /> 
     </main>
   );
 }

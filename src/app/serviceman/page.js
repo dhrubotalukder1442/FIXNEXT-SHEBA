@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Pusher from "pusher-js";
 import { translations, getLang, setLang } from "@/lib/translations";
 import LanguageToggle from "@/components/LanguageToggle";
+import Footer from "@/components/Footer";
 
 const StatusBadge = ({ status }) => {
   const map = {
@@ -929,6 +930,7 @@ export default function ServicemanPage() {
           )}
         </>
       )}
+       <Footer />  
     </main>
   );
 }
