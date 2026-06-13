@@ -392,7 +392,7 @@ export default function ServicemanPage() {
   ];
 
   return (
-    <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", paddingBottom: "2rem" }}>
+    <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", paddingBottom: "0" }}>
 
       {/* Toast */}
       {toastMsg && (
@@ -930,7 +930,9 @@ export default function ServicemanPage() {
           )}
         </>
       )}
-       <Footer />  
+      <div style={{ background: "#0A2540" }}>
+        <Footer />
+        </div>
     </main>
   );
 }
