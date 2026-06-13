@@ -1025,9 +1025,16 @@ export default function Home() {
   </div>
 
   {servicesLoading ? (
-    <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
-      <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
-      Loading services...
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {[1, 2, 3].map((i) => (
+        <div key={i} style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 14, padding: "13px", display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 100, height: 100, borderRadius: 16, background: "#E5E7EB", flexShrink: 0, animation: "pulse 1.5s ease-in-out infinite" }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ height: 14, background: "#E5E7EB", borderRadius: 6, marginBottom: 8, width: "60%" }} />
+            <div style={{ height: 11, background: "#F0F2F5", borderRadius: 6, width: "40%" }} />
+          </div>
+        </div>
+      ))}
     </div>
   ) : services.length === 0 ? (
     <div style={{ textAlign: "center", color: "#888780", fontSize: 13, padding: "2rem 0" }}>
