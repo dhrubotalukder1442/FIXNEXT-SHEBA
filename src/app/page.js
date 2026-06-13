@@ -632,7 +632,7 @@ export default function Home() {
   ];
 
   return (
-    <main style={{ fontFamily: "'Sora', sans-serif", background: "#F0F2F5", minHeight: "100vh", paddingBottom: "0" }}>
+    <main style={{ fontFamily: "'Sora', sans-serif", background: "#0A2540", minHeight: "100vh", paddingBottom: "0" }}>
 
       {/* Review Popup */}
       {showReviewPopup && !reviewed && (
@@ -1003,7 +1003,7 @@ export default function Home() {
 
      
      {/* Services Grid */}
-<div style={{ padding: "1.25rem" }}>
+<div style={{ padding: "1.25rem", background: "#F0F2F5", borderRadius: "0 0 16px 16px" }}>
   <div style={{ fontSize: 11, fontWeight: 600, color: "#888780", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.75rem" }}>Choose a service</div>
 
   {/* Search bar */}
